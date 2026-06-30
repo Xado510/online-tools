@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在线检测工具</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #f0f4f8;
+    --surface: #ffffff;
+    --text: #1a2332;
+    --text2: #5a6a7e;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --border: #e2e8f0;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    --transition: .25s ease;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .container {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 60px;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 1.125rem; color: var(--text);
+  }
+  .logo svg { width: 28px; height: 28px; }
+  .nav-links { display: flex; gap: 4px; list-style: none; }
+  .nav-links a {
+    padding: 8px 16px;
+    border-radius: 8px;
+    color: var(--text2);
+    font-size: .875rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: var(--transition);
+  }
+  .nav-links a:hover { background: var(--bg); color: var(--text); }
+  .nav-links a.active { background: var(--accent-light); color: var(--accent); }
+  .hero {
+    min-height: calc(100vh - 60px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 0;
+  }
+  .hero h1 {
+    font-size: clamp(2.2rem, 4.5vw, 3.2rem);
+    font-weight: 800;
+    letter-spacing: -.02em;
+    line-height: 1.2;
+  }
+  .hero .subtitle {
+    font-size: 1.0625rem;
+    color: var(--text2);
+    margin: 16px auto 40px;
+    max-width: 500px;
+  }
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .tool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    text-decoration: none;
+    color: var(--text);
+    display: block;
+  }
+  .tool-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 4px 12px rgba(37,99,235,.12);
+    transform: translateY(-2px);
+  }
+  .tool-card .icon {
+    width: 48px; height: 48px;
+    margin: 0 auto 16px;
+    border-radius: 12px;
+    background: var(--accent-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+  }
+  .tool-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+  .tool-card p { font-size: .8125rem; color: var(--text2); line-height: 1.5; }
+  footer {
+    text-align: left;
+    padding: 24px;
+    color: var(--text2);
+    font-size: .8125rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  footer .rights {
+    margin-top: 4px;
+    font-size: .75rem;
+    color: #94a3b8;
+  }
+  @media (max-width: 640px) {
+    .tool-grid { grid-template-columns: 1fr; max-width: 280px; }
+    .hero { min-height: auto; padding: 60px 0 40px; }
+    .nav-links a { padding: 6px 10px; font-size: .8125rem; }
+  }
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.active {
+    display: flex;
+  }
+  .modal-content {
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,.2);
+    animation: modalIn .25s ease;
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .modal-header h3 {
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+  .modal-close {
+    width: 32px; height: 32px;
+    border: none;
+    background: var(--bg);
+    border-radius: 8px;
+    font-size: 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text2);
+    transition: var(--transition);
+  }
+  .modal-close:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+  .brand-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .brand-btn {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    font-size: .9375rem;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+  }
+  .brand-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<nav>
+  <div class="container">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      在线检测工具
+    </div>
+    <ul class="nav-links">
+      <li><a href="#" class="active">首页</a></li>
+    </ul>
+  </div>
+</nav>
+<section class="hero">
+  <div class="container">
+    <h1>在线检测工具</h1>
+    <p class="subtitle">本平台提供一系列专业电子设备检测工具，涵盖耳机、鼠标、键盘、屏幕、麦克风等常用外设的在线测试功能。无需安装任何软件，打开浏览器即可使用，帮助您快速诊断设备状态。</p><p style="font-size:.875rem;color:var(--text2);margin-top:8px;opacity:.8;">本工具仅供参考，检测结果以官方检测为准。</p>
+    <div class="tool-grid">
+      <a href="https://soundmictest.com/zh" class="tool-card" target="_blank" rel="noopener noreferrer"><div class="icon">&#x1F3A7;</div><h3>耳机测试</h3><p>测试耳机左右声道、音质与麦克风功能</p></a>
+      <a href="https://www.mousetester.cn/" class="tool-card" target="_blank" rel="noopener noreferrer"><div class="icon">&#x1F5B1;&#xFE0F;</div><h3>鼠标测试</h3><p>测试鼠标按键响应与灵敏度</p></a>
+      <a href="https://www.keyboardtest.cn/" class="tool-card" target="_blank" rel="noopener noreferrer"><div class="icon">&#x2328;&#xFE0F;</div><h3>键盘测试</h3><p>测试键盘按键触发与冲突检测</p></a>
+      <a href="https://www.shijuezu.com/?utm_source=keyboard" class="tool-card" target="_blank" rel="noopener noreferrer"><div class="icon">&#x1F4FA;</div><h3>屏幕测试</h3><p>测试屏幕坏点、色域及显示效果</p></a>
+      <a href="https://www.microphonetest.com/" class="tool-card" target="_blank" rel="noopener noreferrer"><div class="icon">&#x1F3A4;</div><h3>麦克风测试</h3><p>测试麦克风录音效果与音量</p></a>
+      <div class="tool-card" onclick="openBrandModal()"><div class="icon">&#x1F50D;</div><h3>TOP品牌序列号查询</h3><p>查询各品牌产品序列号信息</p></div>
+    </div>
+  </div>
+</section>
+<div class="modal-overlay" id="brandModal" onclick="closeBrandModal(event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>选择品牌</h3>
+      <button class="modal-close" onclick="closeBrandModal()">&times;</button>
+    </div>
+    <div class="brand-grid">
+      <button class="brand-btn" onclick="searchBrand('Huawei')">华为</button>
+      <button class="brand-btn" onclick="searchBrand('Honor')">荣耀</button>
+      <button class="brand-btn" onclick="searchBrand('VIVO')">VIVO</button>
+      <button class="brand-btn" onclick="searchBrand('Xiaomi')">小米</button>
+      <button class="brand-btn" onclick="searchBrand('OPPO')">OPPO</button>
+      <button class="brand-btn" onclick="searchBrand('Samsung')">三星</button>
+      <button class="brand-btn" onclick="searchBrand('Apple')">Apple</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="container">
+    <p style="font-weight:600;">在线检测工具 &copy; 2026</p>
+    <p class="rights">解释权归 Xado 所有 &nbsp;|&nbsp; 仅供个人参考使用</p>
+  </div>
+</footer>
+<script>
+function openBrandModal() {
+  document.getElementById('brandModal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeBrandModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('brandModal').classList.remove('active');
+  document.body.style.overflow = '';
+}
+function searchBrand(brand) {
+  closeBrandModal();
+  var urls = { Huawei: "https://consumer.huawei.com/cn/support/sparepart-price/", Honor: "https://www.honor.com/cn/support/sparepart-price/", VIVO: "https://support.vivo.com.cn/service/authenticityCheck", OPPO: "https://support.oppo.com/cn/check/", Xiaomi: "https://order.mi.com/misc/checkitem/", Samsung: "https://support-cn.samsung.com.cn/product_validation/ProductVerification/accessories.html", Apple: "https://checkcoverage.apple.com/?locale=zh_CN" };
+  if (urls[brand]) { window.open(urls[brand], "_blank"); }
+  else { alert("即将查询 " + brand + " 的序列号信息"); }
+}
+</script>
+</body>
+</html>
