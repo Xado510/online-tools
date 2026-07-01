@@ -301,8 +301,64 @@ var _hmt = _hmt || [];
 <footer>
   <div class="container">
     <p style="font-weight:600;">在线检测工具 &copy; 2026</p>
-    <p class="rights">解释权归 Xado 所有 &nbsp;|&nbsp; 仅供个人参考使用 &nbsp;|&nbsp; <a href="javascript:void(0)" onclick="openDisclaimer()" style="color:var(--accent);text-decoration:underline;cursor:pointer;">免责声明</a></p>
+    <p class="rights">解释权归 Xado 所有 &nbsp;|&nbsp; 仅供个人参考使用 &nbsp;|&nbsp; <a href="javascript:void(0)" onclick="openDisclaimer()" style="color:var(--accent);text-decoration:underline;cursor:pointer;">免责声明</a> &nbsp;|&nbsp; <a href="javascript:void(0)" onclick="openTerms()" style="color:var(--accent);text-decoration:underline;cursor:pointer;">使用条款</a></p>
   </div>
+
+<div class="modal-overlay" id="termsModal" onclick="closeTerms(event)">
+  <div class="modal-content modal-disclaimer">
+    <div class="modal-header">
+      <h3>网站使用条款</h3>
+      <button class="modal-close" onclick="closeTerms()">&times;</button>
+    </div>
+    <div class="disclaimer-body">
+      <p><strong>前言</strong></p>
+      <p>欢迎访问本网站！本网站为纯技术辅助工具类站点，建站唯一目的为：简化检测流程、降低操作成本、提升日常检测工作效率，不涉及任何商业盈利、社交互动、信息交易、内容传播等其他用途。</p>
+      <p>您访问、使用本网站工具及服务的行为，即视为您已充分阅读、理解并自愿同意遵守本使用条款的全部内容。若您不认可本条款内容，请立即停止使用本站所有功能与服务。</p>
+      <p>本网站无用户注册、无账号登录、无内容发布、无评论互动、无付费功能，仅面向使用者提供轻量化检测辅助功能。</p>
+
+      <h4>第一条 服务定位与用途</h4>
+      <p>1. 本网站所有功能、工具、页面、数据逻辑，仅用于辅助日常检测工作、优化检测流程、提高检测作业效率，属于公益性技术辅助工具，无任何商业运营、营销推广、盈利变现目的。</p>
+      <p>2. 本站不提供娱乐、社交、资讯传播、交易服务、法律咨询、医疗判定、官方权威鉴定等服务，所有功能仅为使用者自主检测参考、简化人工操作使用。</p>
+      <p>3. 使用者仅可将本站工具用于合法合规的检测辅助场景，严禁将本站功能用于违规检测、数据破解、非法核验、侵权取证等违法违规场景。</p>
+
+      <h4>第二条 用户使用规范</h4>
+      <p>1. 用户在使用本站检测辅助工具时，必须严格遵守《中华人民共和国网络安全法》《中华人民共和国数据安全法》及国家相关法律法规，合法合规开展检测辅助工作。</p>
+      <p>2. 用户承诺：<br>（1）仅将本站工具用于个人/工作内部合规检测效率提升使用，不用于非法用途、恶意核验、批量违规操作；<br>（2）不通过爬虫、脚本、压力测试、网络攻击等方式恶意访问、占用、破坏本站服务，不干扰工具正常运行；<br>（3）不篡改、逆向、搬运本站检测辅助算法与工具功能用于第三方违规场景；<br>（4）自行对自身的检测行为、检测目的、检测结果使用承担全部责任。</p>
+      <p>3. 若因用户违规使用本站工具产生一切法律责任、纠纷、损失，均由用户自行承担，本站不承担任何连带责任。</p>
+
+      <h4>第三条 知识产权说明</h4>
+      <p>1. 本站所有工具逻辑、页面设计、功能代码、排版内容，均为本站为提升检测效率独立开发的辅助工具，知识产权归运营方所有，受法律保护。</p>
+      <p>2. 本站仅供用户个人工作内部免费使用，任何单位、个人不得私自复刻、搬运、售卖、二次封装、商用分发本站检测辅助工具及相关功能，禁止用于商业牟利。</p>
+      <p>3. 仅允许用户自用提升工作效率，禁止公开传播、倒卖、商业化改造本站功能。</p>
+
+      <h4>第四条 免责声明（核心适配工具属性）</h4>
+      <p>1. 本网站所有工具功能仅为人工检测的辅助效率工具，用于简化操作、节省时间、优化流程，不构成官方鉴定、权威结论、最终判定依据，所有检测结果仅供用户工作参考，不作任何法定凭证。</p>
+      <p>2. 用户最终的检测判定、工作结论、业务决策，需由用户人工自主核实确认，本站不对辅助工具输出的内容绝对精准性、完整性、适用性做担保，因用户自行依据工具结果决策产生的一切后果，由用户自行承担。</p>
+      <p>3. 本站仅提供技术辅助服务，无任何商业、营利、服务收费性质，不对用户的工作误差、业务损失、间接损失承担任何赔偿责任。</p>
+      <p>4. 因网络波动、服务器维护、系统更新、不可抗力导致工具暂时无法使用、数据加载异常，本站无需承担任何责任。</p>
+
+      <h4>第五条 隐私与数据说明</h4>
+      <p>1. 本网站无需登录、无需注册、不强制收集用户个人信息，无用户信息储存库、无个人资料留存机制。</p>
+      <p>2. 本站所有检测操作均为前端轻量化辅助运算，不以收集、留存、倒卖用户数据为目的，仅即时完成效率辅助工作，无后台恶意采集行为。</p>
+      <p>3. 无特殊情况下，本站不会主动记录、储存、上传用户操作数据，用户操作数据安全由用户自身设备及操作环境负责。</p>
+
+      <h4>第六条 条款修改与服务调整</h4>
+      <p>1. 运营方仅为持续优化检测体验、修复工具bug、提升检测效率，有权随时优化、调整、更新本站工具功能及本条款内容，无商业变更目的。</p>
+      <p>2. 条款更新后将在站内公示，公示即生效，用户继续使用本站工具即视为认可最新条款。</p>
+      <p>3. 运营方可根据维护需要随时暂停或终止工具服务，无需承担任何补偿责任。</p>
+
+      <h4>第七条 争议解决</h4>
+      <p>本网站为纯公益效率辅助工具，如产生使用争议，双方优先友好协商解决；协商不成的，适用中华人民共和国法律，由本站运营主体所在地人民法院管辖处理。</p>
+
+      <h4>第八条 其他约定</h4>
+      <p>1. 本条款完全适配本站纯检测效率辅助、无商业、无交互、无盈利的运营定位。</p>
+      <p>2. 本条款任一内容被判定无效，不影响其余条款的效力。</p>
+
+      <p class="disclaimer-footer">生效日期：2026年07月01日</p>
+    </div>
+  </div>
+</div>
+
 </footer>
 <script>
 function openBrandModal() {
@@ -314,6 +370,16 @@ function closeBrandModal(e) {
   document.getElementById('brandModal').classList.remove('active');
   document.body.style.overflow = '';
 }
+function openTerms() {
+  document.getElementById("termsModal").classList.add("active");
+  document.body.style.overflow = "hidden";
+}
+function closeTerms(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById("termsModal").classList.remove("active");
+  document.body.style.overflow = "";
+}
+
 function openDisclaimer() {
   document.getElementById("disclaimerModal").classList.add("active");
   document.body.style.overflow = "hidden";
