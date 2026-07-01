@@ -112,7 +112,12 @@
     border-top: 1px solid var(--border);
     background: var(--surface);
   }
-  footer .rights {
+  .modal-disclaimer { max-width: 720px !important; max-height: 80vh !important; overflow-y: auto !important; padding: 24px 32px !important; }
+.disclaimer-body { font-size: .875rem; line-height: 1.7; color: var(--text2); }
+.disclaimer-body h4 { font-size: .9375rem; font-weight: 700; color: var(--text); margin: 20px 0 8px; }
+.disclaimer-body p { margin-bottom: 8px; }
+.disclaimer-footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); font-weight: 600; color: var(--text); }
+footer .rights {
     margin-top: 4px;
     font-size: .75rem;
     color: #94a3b8;
@@ -250,10 +255,53 @@ var _hmt = _hmt || [];
   </div>
 </div>
 
+
+<div class="modal-overlay" id="disclaimerModal" onclick="closeDisclaimer(event)">
+  <div class="modal-content modal-disclaimer">
+    <div class="modal-header">
+      <h3>免责声明</h3>
+      <button class="modal-close" onclick="closeDisclaimer()">&times;</button>
+    </div>
+    <div class="disclaimer-body">
+      <p>本在线检测工具由制作人Xado独立开发运营，为非官方、公益性辅助检测工具。在你访问、使用本工具全部功能前，请务必仔细阅读本免责声明，一经使用即代表你完全知晓、同意并接受本声明全部条款，自愿承担一切使用风险，若不认可请勿使用本工具。</p>
+
+      <h4>一、工具服务说明</h4>
+      <p>1. 本工具仅为用户提供便捷的在线检测辅助功能，所有检测结果均为自动化程序模拟测算、数据参考展示，不具备官方权威性、法律效力、专业认证效力，不可作为司法判定、商业认证、官方核验、维权举证、专业决策的唯一依据。</p>
+      <p>2. 本工具尽力保障运行稳定与数据展示准确，但受网络波动、设备环境、浏览器兼容、数据源更新延迟、程序算法迭代等不可控因素影响，不保证检测结果绝对精准、完整、实时、无差错。</p>
+      <p>3. 本工具属于个人免费分享项目，无任何商业担保与官方背书，制作人Xado不对工具功能、服务稳定性、数据完整性作出任何明示或暗示的承诺与保证。</p>
+
+      <h4>二、第三方链接免责（核心条款）</h4>
+      <p>1. 本工具页面内置、跳转、关联的所有第三方网站链接、外部平台入口、第三方资源内容，仅为方便用户拓展查询、补充参考而提供，属于纯粹的便民跳转功能。</p>
+      <p>2. 所有第三方链接对应的网站、内容、服务、数据均由第三方主体独立运营、管控，完全独立于本工具及制作人Xado。本工具不对第三方网站的合法性、真实性、安全性、准确性、合规性、完整性做任何担保、审核、监控与背书。</p>
+      <p>3. 用户通过本工具跳转至第三方网站产生的一切浏览、查询、操作、交易、信息提交、下载行为，均为用户个人自主行为。因第三方网站漏洞、病毒、诈骗、信息错误、服务故障、隐私泄露、违规内容等产生的所有损失、纠纷、风险，均由用户自行承担，制作人Xado及本工具不承担任何直接、间接、连带法律责任。</p>
+      <p>4. 第三方链接的存在，不代表本工具认可、推荐、合作或关联该第三方平台，仅为用户便利服务。</p>
+
+      <h4>三、用户使用责任</h4>
+      <p>1. 用户使用本工具及第三方链接服务，必须严格遵守中华人民共和国法律法规及网络使用规范，严禁利用本工具从事违法、违规、侵权、诈骗、破坏网络秩序等一切非法行为。</p>
+      <p>2. 用户需自行审慎核验所有检测结果、第三方页面信息，自行判断信息可用性，自行承担决策失误、信息误用带来的全部后果。</p>
+      <p>3. 因用户个人操作不当、网络环境异常、私自篡改数据、违规使用工具等个人原因，导致的设备故障、数据丢失、隐私泄露、财产损失、法律纠纷，全部由用户自行承担。</p>
+
+      <h4>四、责任豁免范围</h4>
+      <p>在法律允许的最大范围内，制作人Xado无需对任何间接损失、意外损失、衍生损失、商业损失、名誉损失承担赔偿及法律责任，包括但不限于使用本工具产生的决策失误、业务损失、数据偏差、纠纷争议等。</p>
+
+      <h4>五、服务变更与终止</h4>
+      <p>制作人Xado保留随时优化、修改、关停、更新本工具功能、页面、第三方链接的权利，无需提前通知用户，无需对任何变更行为产生的影响承担责任。</p>
+
+      <h4>六、声明更新与效力</h4>
+      <p>本免责声明可根据运营需求随时修订，修订后公示即生效，用户持续使用本工具即视为认可最新声明条款。</p>
+
+      <h4>七、争议解决</h4>
+      <p>因使用本工具产生的一切纠纷，双方优先友好协商解决，协商不成的，均以使用者自行承担风险、免除制作者责任为核心判定依据，适用中华人民共和国法律。</p>
+
+      <p class="disclaimer-footer">制作人：Xado<br>生效日期：2026年7月1日</p>
+    </div>
+  </div>
+</div>
+
 <footer>
   <div class="container">
     <p style="font-weight:600;">在线检测工具 &copy; 2026</p>
-    <p class="rights">解释权归 Xado 所有 &nbsp;|&nbsp; 仅供个人参考使用</p>
+    <p class="rights">解释权归 Xado 所有 &nbsp;|&nbsp; 仅供个人参考使用 &nbsp;|&nbsp; <a href="javascript:void(0)" onclick="openDisclaimer()" style="color:var(--accent);text-decoration:underline;cursor:pointer;">免责声明</a></p>
   </div>
 </footer>
 <script>
@@ -266,6 +314,16 @@ function closeBrandModal(e) {
   document.getElementById('brandModal').classList.remove('active');
   document.body.style.overflow = '';
 }
+function openDisclaimer() {
+  document.getElementById("disclaimerModal").classList.add("active");
+  document.body.style.overflow = "hidden";
+}
+function closeDisclaimer(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById("disclaimerModal").classList.remove("active");
+  document.body.style.overflow = "";
+}
+
 function searchBrand(brand) {
   closeBrandModal();
   var urls = { Huawei: "https://consumer.huawei.com/cn/support/sparepart-price/", Honor: "https://www.honor.com/cn/support/sparepart-price/", VIVO: "https://support.vivo.com.cn/service/authenticityCheck", OPPO: "https://support.oppo.com/cn/check/", Xiaomi: "https://order.mi.com/misc/checkitem/", Samsung: "https://support-cn.samsung.com.cn/product_validation/ProductVerification/accessories.html", Apple: "https://checkcoverage.apple.com/?locale=zh_CN" };
