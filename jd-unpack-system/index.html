@@ -945,79 +945,10 @@
   }
 
   function seedState() {
-    const specs = [
-      { demo: 0, minutes: 412, status: 'done', operator: '王师傅', condition: '完好', note: '外箱封条完好', duration: 186 },
-      { demo: 1, minutes: 391, status: 'done', operator: '李婷', condition: '完好', note: '商品与清单一致', duration: 214 },
-      { demo: 2, minutes: 364, status: 'done', operator: '王师傅', condition: '轻微压痕', note: '外箱有压痕，商品完好', duration: 243 },
-      { demo: 3, minutes: 338, status: 'done', operator: '陈刚', condition: '完好', note: '木架加固完好', duration: 362 },
-      { demo: 4, minutes: 305, status: 'done', operator: '李婷', condition: '完好', note: '数量核对通过', duration: 157 },
-      { demo: 5, minutes: 278, status: 'done', operator: '王师傅', condition: '完好', note: '标签清晰', duration: 198 },
-      { demo: 6, minutes: 252, status: 'done', operator: '陈刚', condition: '完好', note: '原厂封条', duration: 286 },
-      { demo: 7, minutes: 221, status: 'done', operator: '李婷', condition: '完好', note: '批次正确', duration: 174 },
-      { demo: 0, minutes: 196, status: 'done', operator: '王师傅', condition: '完好', note: '充电激活正常', duration: 132 },
-      { demo: 1, minutes: 164, status: 'done', operator: '陈刚', condition: '完好', note: '外箱二次加固', duration: 225 },
-      { demo: 2, minutes: 133, status: 'done', operator: '李婷', condition: '完好', note: '数量核对通过', duration: 169 },
-      { demo: 6, minutes: 96, status: 'anomaly', operator: '王师傅', condition: '完好', note: '缺少标配电源线', duration: 214 },
-      { demo: 4, minutes: 42, status: 'pending', operator: '王师傅', condition: '待检查', note: '', duration: 0 },
-      { demo: 7, minutes: 21, status: 'pending', operator: '待分配', condition: '待检查', note: '', duration: 0 },
-      { demo: 0, minutes: 9, status: 'unpacking', operator: '李婷', condition: '拆包中', note: '', duration: 0 }
-    ];
-
-    const parcels = specs.map((spec, index) => {
-      const demo = DEMO_PACKAGES[spec.demo];
-      return {
-        id: makeId('JD', index),
-        tracking: demo.tracking,
-        order: demo.order,
-        product: demo.product,
-        sku: demo.sku,
-        category: demo.category,
-        quantity: demo.quantity,
-        supplier: demo.supplier,
-        box: demo.box,
-        weight: demo.weight,
-        status: spec.status,
-        operator: spec.operator,
-        station: '3号拆包台',
-        condition: spec.condition,
-        note: spec.note,
-        duration: spec.duration,
-        createdAt: ago(spec.minutes),
-        unpackedAt: spec.status === 'done' || spec.status === 'anomaly' ? ago(spec.minutes - 3) : null
-      };
-    });
-
-    const anomalies = [
-      {
-        id: makeId('AX', 0),
-        parcelId: parcels[11].id,
-        tracking: parcels[11].tracking,
-        type: '商品少件',
-        severity: '高',
-        status: 'pending',
-        description: '外包装完好，开箱后缺少标配电源线',
-        createdAt: ago(96),
-        handler: '王师傅',
-        resolvedAt: null
-      },
-      {
-        id: makeId('AX', 1),
-        parcelId: parcels[3].id,
-        tracking: parcels[3].tracking,
-        type: '外包装破损',
-        severity: '中',
-        status: 'resolved',
-        description: '箱体侧面有破洞，已补拍照片上传',
-        createdAt: ago(320),
-        handler: '陈刚',
-        resolvedAt: ago(286)
-      }
-    ];
-
     return {
       settings: { goal: 120, operator: 'admin', station: '3号拆包台' },
-      parcels,
-      anomalies
+      parcels: [],
+      anomalies: []
     };
   }
 
@@ -1668,7 +1599,7 @@
         <button class="btn" id="jdCopySnippet" type="button">复制京东页面抓取命令</button>
         <button class="btn" id="jdCopyPinCmd" type="button">复制获取物流Token命令</button>
         <button class="btn" id="jdAutoPinCmd" type="button">复制自动配置物流Token命令</button>
-        <button class="btn btn-danger" id="jdResetBtn" type="button">重置演示数据</button>
+        <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
       </div>
     `;
     openModal('京东接口设置', body, '<button class="btn btn-primary" type="button" id="jdSaveBtn">保存</button>');
@@ -1817,7 +1748,7 @@
     document.getElementById('parcelDate').value = '';
     onlyPendingAnomalies = false;
     renderAll();
-    toast('演示数据已重置');
+    toast('数据已重置');
   }
 
   function clearParcels() {
