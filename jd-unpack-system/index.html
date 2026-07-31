@@ -1371,6 +1371,7 @@
       '  shopCode = shopRow.code || "";',
       '  facilitatorCode = shopRow.facilitatorCode || "";',
       '  const shopName = shopRow.shopName || shopRow.name || "";',
+      '  try { await fetch(bridge + "/api/repair/set-digital-cookie", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookie:document.cookie,userId:userId,appCode:localStorage.getItem("systemCode") || "",shopCode:shopCode})}); } catch (e) {}',
       '  const query = {expressNo: expressNo.toUpperCase()};',
       '  if (shopCode) query.shopCode = shopCode;',
       '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({pageIndex:1,pageSize:10,query:query})}).then(r => r.json());',
