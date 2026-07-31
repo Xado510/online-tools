@@ -40,6 +40,45 @@
   button { cursor: pointer; }
   .hidden { display: none !important; }
 
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--bg);
+  }
+  .login-overlay.hidden { display: none; }
+  .auth-locked .layout { display: none; }
+  .login-card {
+    width: 100%;
+    max-width: 380px;
+    padding: 26px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+  }
+  .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .login-title { font-size: 18px; font-weight: 800; }
+  .login-sub { margin-top: 2px; font-size: 12px; color: var(--text-3); }
+  .login-field { margin-top: 14px; }
+  .login-field label { display: block; margin-bottom: 6px; color: var(--text-2); font-size: 12px; font-weight: 600; }
+  .login-field input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    outline: none;
+  }
+  .login-field input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(225, 37, 27, .08); }
+  .login-error { min-height: 20px; margin-top: 8px; color: var(--red); font-size: 12px; }
+  .login-card .btn { width: 100%; margin-top: 4px; }
+
   .layout { display: flex; min-height: 100vh; }
 
   .sidebar {
@@ -641,6 +680,27 @@
 </style>
 </head>
 <body>
+<div class="login-overlay" id="loginOverlay">
+  <form class="login-card" id="loginForm">
+    <div class="login-brand">
+      <div class="brand-mark">JD</div>
+      <div>
+        <div class="login-title">京东拆包系统</div>
+        <div class="login-sub">北京保险服务中心</div>
+      </div>
+    </div>
+    <div class="login-field">
+      <label for="loginUsername">账号</label>
+      <input id="loginUsername" type="text" autocomplete="username" placeholder="请输入账号">
+    </div>
+    <div class="login-field">
+      <label for="loginPassword">密码</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="请输入密码">
+    </div>
+    <div class="login-error" id="loginError"></div>
+    <button class="btn btn-primary" type="submit">登录</button>
+  </form>
+</div>
 <div class="layout">
   <aside class="sidebar">
     <div class="brand">
@@ -885,6 +945,9 @@
 
 <script>
   const STORAGE_KEY = 'jd-unpack-system-v1';
+  const AUTH_USER = 'admin';
+  const AUTH_PASS = 'jdl950618618';
+  const AUTH_KEY = 'jd_unpack_auth';
   const ICONS = {
     dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
     scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" x2="17" y1="12" y2="12"/>',
@@ -968,6 +1031,17 @@
     } catch (err) {
       console.warn(err);
     }
+  }
+
+  function applyAuthGate() {
+    const authed = localStorage.getItem(AUTH_KEY) === '1';
+    document.body.classList.toggle('auth-locked', !authed);
+    document.getElementById('loginOverlay').classList.toggle('hidden', authed);
+  }
+
+  function logout() {
+    localStorage.removeItem(AUTH_KEY);
+    applyAuthGate();
   }
 
   function icon(name) {
@@ -1598,6 +1672,7 @@
       <div class="action-row" style="margin-top:14px">
         <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
         <button class="btn" id="jdAutoPinCmd" type="button">展翅自动获取</button>
+        <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
       </div>
     `;
@@ -1622,6 +1697,10 @@
     document.getElementById('jdResetBtn').addEventListener('click', () => {
       closeModal();
       resetDemo();
+    });
+    document.getElementById('jdLogoutBtn').addEventListener('click', () => {
+      closeModal();
+      logout();
     });
   }
 
@@ -1898,6 +1977,21 @@
     if (['dashboard', 'scan', 'parcels', 'anomalies'].includes(view)) switchView(view);
   }
   window.addEventListener('hashchange', applyHash);
+
+  document.getElementById('loginForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    if (username === AUTH_USER && password === AUTH_PASS) {
+      localStorage.setItem(AUTH_KEY, '1');
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginError').textContent = '';
+      applyAuthGate();
+    } else {
+      document.getElementById('loginError').textContent = '账号或密码错误';
+    }
+  });
+  applyAuthGate();
 
   hydrateIcons();
   applyHash();
