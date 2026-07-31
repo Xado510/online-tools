@@ -1,0 +1,1985 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>京东拆包系统</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f3f5f7;
+    --surface: #ffffff;
+    --surface-2: #f8fafb;
+    --text: #1f2329;
+    --text-2: #5a6472;
+    --text-3: #96a0ad;
+    --border: #e3e7ec;
+    --red: #e1251b;
+    --red-dark: #c8161d;
+    --red-light: #fff1f0;
+    --green: #17884c;
+    --green-light: #e7f6ee;
+    --blue: #2563eb;
+    --blue-light: #eaf1ff;
+    --amber: #b45309;
+    --amber-light: #fef3e2;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05);
+    --shadow-md: 0 4px 14px rgba(16, 24, 40, .07);
+    --radius: 8px;
+  }
+  html { height: 100%; }
+  body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  .layout { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 232px;
+    flex: 0 0 232px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 14px 12px 16px;
+    z-index: 50;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px; border-bottom: 1px solid var(--border); }
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: var(--red);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 15px;
+    letter-spacing: .02em;
+  }
+  .brand-text { display: flex; flex-direction: column; min-width: 0; }
+  .brand-text strong { font-size: 15px; font-weight: 800; }
+  .brand-text span { font-size: 11px; color: var(--text-3); letter-spacing: .08em; }
+
+  .nav { display: flex; flex-direction: column; gap: 4px; padding: 16px 0; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-2);
+    font-weight: 600;
+    text-align: left;
+    transition: background .18s ease, color .18s ease;
+  }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.active { background: var(--red-light); color: var(--red); }
+  .nav-item svg { width: 18px; height: 18px; }
+
+  .main { flex: 1; min-width: 0; }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 24px 14px;
+    background: rgba(255, 255, 255, .92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .title-wrap h1 { font-size: 20px; line-height: 1.3; }
+  .title-wrap p { margin-top: 2px; font-size: 12px; color: var(--text-3); }
+  .top-actions { display: flex; align-items: center; gap: 10px; }
+  .warehouse-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .warehouse-chip svg { width: 16px; height: 16px; color: var(--red); }
+  .user-badge {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: var(--red);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: .02em;
+  }
+
+  .content { max-width: 1440px; margin: 0 auto; padding: 20px 24px 48px; }
+  .view { display: none; }
+  .view.active { display: block; animation: viewIn .25s ease; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  .btn {
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    white-space: nowrap;
+    transition: border-color .18s ease, background .18s ease, transform .12s ease;
+  }
+  .btn:hover { border-color: #c7cdd5; background: var(--surface-2); }
+  .btn:active { transform: translateY(1px); }
+  .btn svg { width: 16px; height: 16px; }
+  .btn-primary { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn-primary:hover { background: var(--red-dark); border-color: var(--red-dark); }
+  .btn-danger { background: var(--red-light); border-color: #f4c7c4; color: var(--red); }
+  .btn-danger:hover { background: #ffe4e2; }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .link-btn { border: 0; background: transparent; color: var(--blue); font-weight: 600; padding: 0; }
+  .link-btn:hover { text-decoration: underline; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .panel-title { font-size: 15px; font-weight: 800; }
+  .panel-sub { margin-top: 3px; font-size: 12px; color: var(--text-3); }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    box-shadow: var(--shadow-sm);
+    min-width: 0;
+  }
+  .stat-icon {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stat-icon svg { width: 20px; height: 20px; }
+  .stat-icon.red { background: var(--red-light); color: var(--red); }
+  .stat-icon.blue { background: var(--blue-light); color: var(--blue); }
+  .stat-icon.amber { background: var(--amber-light); color: var(--amber); }
+  .stat-icon.green { background: var(--green-light); color: var(--green); }
+  .stat-copy { min-width: 0; }
+  .stat-label { font-size: 12px; color: var(--text-2); }
+  .stat-value { margin-top: 2px; font-size: 22px; line-height: 1.2; font-weight: 800; white-space: nowrap; }
+  .stat-delta { margin-top: 2px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  .stat-delta.up { color: var(--green); }
+  .stat-delta.down { color: var(--red); }
+
+  .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 14px; margin-bottom: 14px; }
+  .goal-text { font-size: 12px; color: var(--text-2); font-weight: 700; }
+  .goal-track { height: 10px; border-radius: 999px; background: #eef1f4; overflow: hidden; }
+  .goal-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--red), #f97316); transition: width .5s ease; }
+  .chart { display: flex; align-items: flex-end; gap: 8px; height: 132px; margin-top: 16px; }
+  .chart-col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 7px; }
+  .bar-fill {
+    width: 100%;
+    max-width: 30px;
+    min-height: 4px;
+    border-radius: 4px 4px 0 0;
+    background: linear-gradient(180deg, var(--red), #fca5a5);
+    transition: height .45s ease;
+  }
+  .bar-value { font-size: 11px; font-weight: 700; color: var(--text-2); }
+  .bar-label { font-size: 10px; color: var(--text-3); }
+
+  .anomaly-list { display: flex; flex-direction: column; gap: 10px; }
+  .anomaly-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .anomaly-item svg { width: 17px; height: 17px; flex: 0 0 17px; margin-top: 1px; color: var(--amber); }
+  .anomaly-item strong { display: block; font-size: 13px; }
+  .anomaly-item p { margin-top: 2px; color: var(--text-2); font-size: 12px; line-height: 1.45; }
+  .anomaly-item .status { margin-top: 8px; }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .status-done { background: var(--green-light); color: var(--green); }
+  .status-pending { background: var(--amber-light); color: var(--amber); }
+  .status-unpacking { background: var(--blue-light); color: var(--blue); }
+  .status-anomaly { background: var(--red-light); color: var(--red); }
+  .status-resolved { background: var(--blue-light); color: var(--blue); }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+    white-space: nowrap;
+  }
+  td { padding: 12px; border-bottom: 1px solid #eef1f4; vertical-align: middle; font-size: 13px; }
+  tr:last-child td { border-bottom: 0; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #fafbfc; }
+  .parcel-main { min-width: 0; }
+  .parcel-main strong { display: block; font-weight: 700; line-height: 1.35; }
+  .parcel-main span { display: block; margin-top: 2px; color: var(--text-3); font-size: 12px; }
+  .mini-btn {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .mini-btn:hover { border-color: var(--red); color: var(--red); }
+  .mini-btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+  .mini-btn.primary:hover { background: var(--red-dark); }
+  .empty-row td { padding: 36px 16px; text-align: center; color: var(--text-3); }
+
+  .scan-head { margin-bottom: 14px; }
+  .scan-search { display: flex; gap: 10px; flex-wrap: wrap; }
+  .search-input {
+    flex: 1 1 320px;
+    min-width: 260px;
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    outline: none;
+    font-size: 15px;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .search-input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(225, 37, 27, .12); }
+  .scan-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sample-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .sample-label { font-size: 12px; color: var(--text-3); }
+  .sample-chip {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 12px;
+  }
+  .sample-chip:hover { border-color: var(--red); color: var(--red); background: var(--red-light); }
+
+  .scan-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); gap: 14px; }
+  .scan-empty {
+    min-height: 360px;
+    border: 1px dashed #cfd5dc;
+    border-radius: var(--radius);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+  .empty-state { text-align: center; color: var(--text-3); max-width: 280px; }
+  .empty-state > svg { width: 52px; height: 52px; color: #cbd2da; }
+  .empty-state h3 { margin-top: 14px; font-size: 16px; color: var(--text-2); }
+  .empty-state p { margin-top: 6px; font-size: 13px; line-height: 1.6; }
+
+  .package-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .meta-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: 10px 12px;
+    min-width: 0;
+  }
+  .meta-item span { display: block; font-size: 11px; color: var(--text-3); }
+  .meta-item strong { display: block; margin-top: 3px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+  .section-label { margin: 18px 0 10px; font-size: 13px; font-weight: 800; color: var(--text-2); }
+  .product-list { display: flex; flex-direction: column; gap: 9px; }
+  .product-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: 10px 12px;
+    cursor: pointer;
+  }
+  .product-item:hover { border-color: #c9cfd6; }
+  .product-item input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--red); }
+  .product-icon {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border-radius: var(--radius);
+    background: #fff;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--red);
+  }
+  .product-icon svg { width: 17px; height: 17px; }
+  .product-info { flex: 1; min-width: 0; }
+  .product-info strong { display: block; font-size: 13px; line-height: 1.4; }
+  .product-info span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-3); }
+  .quantity { font-weight: 800; color: var(--red); white-space: nowrap; }
+
+  .field-label { display: block; margin: 16px 0 8px; font-size: 13px; font-weight: 700; color: var(--text-2); }
+  .condition-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .condition-option { position: relative; }
+  .condition-option input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+  .condition-option span {
+    height: 74px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    text-align: center;
+    transition: border-color .18s ease, background .18s ease, color .18s ease;
+  }
+  .condition-option input:checked + span { border-color: var(--red); background: var(--red-light); color: var(--red); }
+  .condition-option input:focus-visible + span { box-shadow: 0 0 0 3px rgba(225, 37, 27, .16); }
+  .condition-option strong { font-size: 13px; }
+  .condition-option small { font-size: 11px; color: var(--text-3); }
+  textarea {
+    width: 100%;
+    min-height: 88px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    resize: vertical;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(225, 37, 27, .12); }
+  .action-row { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+  .action-row .btn { flex: 1 1 130px; }
+
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .filters .search-input { flex: 1 1 260px; height: 38px; font-size: 13px; }
+  .select-input {
+    height: 38px;
+    padding: 0 30px 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    outline: none;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 16px, calc(100% - 11px) 16px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  .count-badge { color: var(--text-3); font-size: 12px; font-weight: 700; }
+
+  .anomaly-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .anomaly-stat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .anomaly-stat span { font-size: 12px; color: var(--text-2); }
+  .anomaly-stat strong { font-size: 24px; font-weight: 800; }
+  .anomaly-stat.high strong { color: var(--red); }
+  .anomaly-stat.pending strong { color: var(--amber); }
+  .anomaly-stat.resolved strong { color: var(--blue); }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(15, 23, 42, .46);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 36px 16px;
+    overflow-y: auto;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    width: 100%;
+    max-width: 680px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 50px rgba(15, 23, 42, .24);
+    animation: modalIn .22s ease;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h2 { font-size: 16px; font-weight: 800; }
+  .modal-body { padding: 18px; }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+  }
+  .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .detail-note {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: 12px;
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.6;
+  }
+  .detail-products { display: flex; flex-direction: column; gap: 8px; }
+  .detail-product {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+  .detail-product strong { display: block; font-size: 13px; }
+  .detail-product span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-3); }
+
+  .print-area {
+    border: 1px solid #c6ccd3;
+    border-radius: var(--radius);
+    background: #fff;
+    padding: 18px;
+  }
+  .label-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .label-head strong { font-size: 17px; color: var(--red); }
+  .label-head span { font-size: 12px; color: var(--text-3); }
+  .label-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+  .label-grid div { font-size: 13px; }
+  .label-grid span { display: block; color: var(--text-3); font-size: 11px; }
+  .label-grid strong { font-size: 13px; word-break: break-word; }
+  .barcode {
+    height: 44px;
+    margin: 16px 0 8px;
+    background: repeating-linear-gradient(90deg, #1f2329 0 2px, transparent 2px 5px, #1f2329 5px 8px, transparent 8px 11px, #1f2329 11px 12px, transparent 12px 16px, #1f2329 16px 19px, transparent 19px 22px);
+    border: 1px solid #eef1f4;
+  }
+  .label-no { text-align: center; font-size: 12px; letter-spacing: .18em; color: var(--text-2); }
+
+  .toast-wrap { position: fixed; right: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    min-width: 240px;
+    max-width: 360px;
+    padding: 11px 14px;
+    border-radius: var(--radius);
+    background: #1f2329;
+    color: #fff;
+    font-size: 13px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .22);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: toastIn .22s ease;
+  }
+  .toast svg { width: 16px; height: 16px; color: #4ade80; }
+  .toast.error svg { color: #f87171; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .camera-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .camera-wrap video {
+    width: 100%;
+    height: 260px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #111827;
+  }
+  .camera-status { font-size: 13px; color: var(--text-3); text-align: center; }
+
+  @media (max-width: 1080px) {
+    .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-grid, .scan-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; }
+    .sidebar {
+      width: 100%;
+      height: auto;
+      position: sticky;
+      top: 0;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { border-bottom: 0; padding: 0; }
+    .brand-text span { display: none; }
+    .nav { flex-direction: row; gap: 4px; padding: 0; overflow-x: auto; flex: 1; }
+    .nav-item { width: auto; min-width: 74px; justify-content: center; padding: 0 10px; }
+    .nav-item span:last-child { font-size: 13px; white-space: nowrap; }
+    .main { width: 100%; }
+    .topbar { padding: 12px 16px 10px; }
+    .content { padding: 14px 16px 36px; }
+    .warehouse-chip { display: none; }
+  }
+  @media (max-width: 560px) {
+    .top-actions .btn span:last-child { display: none; }
+    .top-actions .btn { padding: 0 10px; }
+    .stat-grid, .anomaly-stat-grid { grid-template-columns: 1fr; }
+    .package-meta, .detail-grid { grid-template-columns: 1fr; }
+    .condition-group { grid-template-columns: 1fr; }
+    .condition-option span { height: 62px; }
+    .modal-backdrop { padding: 16px 10px; }
+  }
+  @media print {
+    body * { visibility: hidden; }
+    .modal-backdrop.active { display: block; position: static; background: transparent; padding: 0; overflow: visible; }
+    .modal-backdrop.active * { visibility: visible; }
+    .modal { max-width: 100%; box-shadow: none; border: 0; }
+    .modal-header, .modal-footer, .modal-backdrop .icon-btn { display: none; }
+    .modal-body { padding: 0; }
+    .print-area { border: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">JD</div>
+      <div class="brand-text">
+        <strong>京东拆包系统</strong>
+        <span>JD Unpack Console</span>
+      </div>
+    </div>
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item active" type="button" data-view="dashboard">
+        <span data-icon="dashboard"></span><span>工作台</span>
+      </button>
+      <button class="nav-item" type="button" data-view="scan">
+        <span data-icon="scan"></span><span>扫码拆包</span>
+      </button>
+      <button class="nav-item" type="button" data-view="parcels">
+        <span data-icon="package"></span><span>历史记录</span>
+      </button>
+      <button class="nav-item" type="button" data-view="anomalies">
+        <span data-icon="alert"></span><span>异常处理</span>
+      </button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-wrap">
+        <h1 id="pageTitle">工作台</h1>
+        <p id="pageSubtitle">北京保险服务中心 · 拆包作业</p>
+      </div>
+      <div class="top-actions">
+        <span class="warehouse-chip"><span data-icon="truck"></span>北京保险服务中心</span>
+        <button class="btn" id="jdSettingsBtn" type="button"><span data-icon="settings"></span><span>设置</span></button>
+        <div class="user-badge" title="admin">admin</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <section class="view active" id="view-dashboard">
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="dashboard-grid">
+          <article class="panel">
+            <header class="panel-head">
+              <div>
+                <h2 class="panel-title">拆包进度</h2>
+                <p class="panel-sub" id="goalSub">按今日完成量统计</p>
+              </div>
+              <span class="goal-text" id="goalText">0 / 120</span>
+            </header>
+            <div class="goal-track"><div class="goal-fill" id="goalFill"></div></div>
+            <div class="chart" id="hourChart"></div>
+          </article>
+          <article class="panel">
+            <header class="panel-head">
+              <h2 class="panel-title">异常概览</h2>
+              <button class="link-btn" type="button" data-view-link="anomalies">查看全部</button>
+            </header>
+            <div class="anomaly-list" id="anomalyList"></div>
+          </article>
+        </div>
+        <article class="panel">
+          <header class="panel-head">
+            <div>
+              <h2 class="panel-title">今日拆包记录</h2>
+              <p class="panel-sub">最近完成拆包的作业记录</p>
+            </div>
+            <button class="link-btn" type="button" data-view-link="parcels">历史记录</button>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>运单号</th>
+                  <th>商品</th>
+                  <th>操作员</th>
+                  <th>完成时间</th>
+                  <th>耗时</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="recentTbody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-scan">
+        <section class="panel scan-head">
+          <div class="scan-search">
+            <input class="search-input" id="trackingInput" placeholder="输入运单号" autocomplete="off" spellcheck="false">
+            <div class="scan-actions">
+              <button class="btn btn-primary" id="lookupBtn" type="button"><span data-icon="search"></span>查询</button>
+              <button class="btn" id="cameraBtn" type="button"><span data-icon="camera"></span>扫码</button>
+              <button class="btn" id="simulateBtn" type="button"><span data-icon="scan"></span>模拟扫码</button>
+            </div>
+          </div>
+          <div class="sample-row">
+            <span class="sample-label">示例运单</span>
+            <button class="sample-chip" type="button" data-tracking="JDVA0000112233">JDVA0000112233</button>
+            <button class="sample-chip" type="button" data-tracking="JDVA0000112255">JDVA0000112255</button>
+            <button class="sample-chip" type="button" data-tracking="JDVA0000112277">JDVA0000112277</button>
+          </div>
+        </section>
+
+        <section class="scan-empty" id="scanResult">
+          <div class="empty-state">
+            <span data-icon="package"></span>
+            <h3>等待拆包</h3>
+            <p>查询或扫描运单号后开始处理</p>
+          </div>
+        </section>
+
+        <section class="scan-grid hidden" id="scanWork">
+          <article class="panel">
+            <header class="panel-head">
+              <div>
+                <h2 class="panel-title" id="scanTitle">包裹信息</h2>
+                <p class="panel-sub" id="scanStatusLine"></p>
+              </div>
+              <button class="btn" id="printCurrentBtn" type="button"><span data-icon="printer"></span>打印面单</button>
+            </header>
+            <div class="package-meta" id="scanMeta"></div>
+            <h3 class="section-label">商品核对</h3>
+            <div class="product-list" id="scanProducts"></div>
+          </article>
+          <article class="panel">
+            <header class="panel-head">
+              <h2 class="panel-title">拆包确认</h2>
+            </header>
+            <label class="field-label">外包装情况</label>
+            <div class="condition-group" id="conditionGroup">
+              <label class="condition-option">
+                <input type="radio" name="condition" value="完好" checked>
+                <span><strong>完好</strong><small>封条箱体正常</small></span>
+              </label>
+              <label class="condition-option">
+                <input type="radio" name="condition" value="压痕">
+                <span><strong>轻微压痕</strong><small>商品未受影响</small></span>
+              </label>
+              <label class="condition-option">
+                <input type="radio" name="condition" value="破损">
+                <span><strong>破损</strong><small>需登记异常</small></span>
+              </label>
+            </div>
+            <label class="field-label" for="scanNote">备注</label>
+            <textarea id="scanNote" placeholder="填写拆包备注"></textarea>
+            <div class="action-row">
+              <button class="btn btn-primary" id="confirmBtn" type="button"><span data-icon="check"></span>确认拆包</button>
+              <button class="btn btn-danger" id="anomalyBtn" type="button"><span data-icon="alert"></span>标记异常</button>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="view" id="view-parcels">
+        <section class="panel">
+          <header class="panel-head">
+            <div>
+              <h2 class="panel-title">包裹列表</h2>
+              <p class="panel-sub" id="parcelSubtitle"></p>
+            </div>
+            <span class="count-badge" id="parcelCount">0 条</span>
+          </header>
+          <div class="filters">
+            <input class="search-input" id="parcelSearch" placeholder="搜索运单号或履约单号" autocomplete="off">
+            <select class="select-input" id="parcelStatus">
+              <option value="all">全部状态</option>
+              <option value="pending">待拆包</option>
+              <option value="unpacking">拆包中</option>
+              <option value="done">已完成</option>
+              <option value="anomaly">异常</option>
+            </select>
+            <input class="select-input" type="date" id="parcelDate">
+            <button class="btn" id="refreshParcels" type="button"><span data-icon="refresh"></span>刷新</button>
+            <button class="btn btn-danger" id="clearParcelsBtn" type="button"><span data-icon="x"></span>清空历史</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>运单号</th>
+                  <th>履约单号</th>
+                  <th>商品</th>
+                  <th>状态</th>
+                  <th>操作员</th>
+                  <th>更新时间</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="parcelTbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="view-anomalies">
+        <div class="anomaly-stat-grid" id="anomalyStatGrid"></div>
+        <section class="panel">
+          <header class="panel-head">
+            <div>
+              <h2 class="panel-title">异常记录</h2>
+              <p class="panel-sub">少件、破损、错发等拆包异常</p>
+            </div>
+            <button class="link-btn" id="anomalyToggle" type="button">只看待处理</button>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>异常编号</th>
+                  <th>运单号</th>
+                  <th>异常类型</th>
+                  <th>严重程度</th>
+                  <th>描述</th>
+                  <th>登记时间</th>
+                  <th>状态</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="anomalyTbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header class="modal-header">
+      <h2 id="modalTitle">详情</h2>
+      <button class="icon-btn" id="modalClose" type="button" aria-label="关闭"><span data-icon="x"></span></button>
+    </header>
+    <div class="modal-body" id="modalBody"></div>
+    <footer class="modal-footer" id="modalFooter"></footer>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+  const STORAGE_KEY = 'jd-unpack-system-v1';
+  const ICONS = {
+    dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+    scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" x2="17" y1="12" y2="12"/>',
+    package: '<path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>',
+    box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><line x1="12" x2="12" y1="22" y2="12"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/>',
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+    printer: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18h-5"/><path d="M15 8h3l3 4v5a1 1 0 0 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+    timer: '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    chevron: '<path d="m6 9 6 6 6-6"/>'
+  };
+
+  const DEMO_PACKAGES = [
+    { tracking: 'JDVA0000112233', order: 'JD-20260731-0812', product: 'Apple iPhone 16 Pro Max 256GB 原色钛金属', sku: '1000123456', category: '数码', quantity: 1, supplier: '京东自营', box: '标准纸箱', weight: '1.42kg' },
+    { tracking: 'JDVA0000112244', order: 'JD-20260731-0816', product: '小米米家空气净化器 5 Pro', sku: '1000234567', category: '家电', quantity: 1, supplier: '京东自营', box: '加厚纸箱', weight: '7.60kg' },
+    { tracking: 'JDVA0000112255', order: 'JD-20260731-0820', product: '乐高机械组 42172 迈凯伦 P1', sku: '1000345678', category: '玩具', quantity: 1, supplier: '品牌旗舰店', box: '原厂彩箱', weight: '5.18kg' },
+    { tracking: 'JDVA0000112266', order: 'JD-20260731-0824', product: '海尔 10KG 滚筒洗衣机', sku: '1000456789', category: '家电', quantity: 1, supplier: '京东自营', box: '木架纸箱', weight: '72.00kg' },
+    { tracking: 'JDVA0000112277', order: 'JD-20260731-0829', product: '飞利浦电动牙刷 HX2471', sku: '1000567890', category: '个护', quantity: 2, supplier: '京东自营', box: '标准纸箱', weight: '0.86kg' },
+    { tracking: 'JDVA0000112288', order: 'JD-20260731-0833', product: '美的电饭煲 4L 智能预约', sku: '1000678901', category: '家电', quantity: 1, supplier: '京东自营', box: '标准纸箱', weight: '3.20kg' },
+    { tracking: 'JDVA0000112299', order: 'JD-20260731-0837', product: '联想拯救者 Y7000P 游戏本', sku: '1000789012', category: '数码', quantity: 1, supplier: '联想京东自营旗舰店', box: '原厂彩箱', weight: '3.35kg' },
+    { tracking: 'JDVA0000112310', order: 'JD-20260731-0841', product: '三只松鼠坚果大礼包 30包', sku: '1000890123', category: '食品', quantity: 3, supplier: '京东自营', box: '标准纸箱', weight: '4.75kg' }
+  ];
+
+  let state = loadState();
+  let currentScan = null;
+  let jdRepairResult = null;
+  let jdQuerySeq = 0;
+  let jdPollTimer = null;
+  let onlyPendingAnomalies = false;
+  let cameraStream = null;
+  let cameraTimer = null;
+
+  function pad(value) {
+    return String(value).padStart(2, '0');
+  }
+
+  function dateNum() {
+    const d = new Date();
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  }
+
+  function ago(minutes) {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - minutes);
+    return d.toISOString();
+  }
+
+  function makeId(prefix, index) {
+    return `${prefix}${dateNum()}${pad(index + 1)}`;
+  }
+
+  function seedState() {
+    const specs = [
+      { demo: 0, minutes: 412, status: 'done', operator: '王师傅', condition: '完好', note: '外箱封条完好', duration: 186 },
+      { demo: 1, minutes: 391, status: 'done', operator: '李婷', condition: '完好', note: '商品与清单一致', duration: 214 },
+      { demo: 2, minutes: 364, status: 'done', operator: '王师傅', condition: '轻微压痕', note: '外箱有压痕，商品完好', duration: 243 },
+      { demo: 3, minutes: 338, status: 'done', operator: '陈刚', condition: '完好', note: '木架加固完好', duration: 362 },
+      { demo: 4, minutes: 305, status: 'done', operator: '李婷', condition: '完好', note: '数量核对通过', duration: 157 },
+      { demo: 5, minutes: 278, status: 'done', operator: '王师傅', condition: '完好', note: '标签清晰', duration: 198 },
+      { demo: 6, minutes: 252, status: 'done', operator: '陈刚', condition: '完好', note: '原厂封条', duration: 286 },
+      { demo: 7, minutes: 221, status: 'done', operator: '李婷', condition: '完好', note: '批次正确', duration: 174 },
+      { demo: 0, minutes: 196, status: 'done', operator: '王师傅', condition: '完好', note: '充电激活正常', duration: 132 },
+      { demo: 1, minutes: 164, status: 'done', operator: '陈刚', condition: '完好', note: '外箱二次加固', duration: 225 },
+      { demo: 2, minutes: 133, status: 'done', operator: '李婷', condition: '完好', note: '数量核对通过', duration: 169 },
+      { demo: 6, minutes: 96, status: 'anomaly', operator: '王师傅', condition: '完好', note: '缺少标配电源线', duration: 214 },
+      { demo: 4, minutes: 42, status: 'pending', operator: '王师傅', condition: '待检查', note: '', duration: 0 },
+      { demo: 7, minutes: 21, status: 'pending', operator: '待分配', condition: '待检查', note: '', duration: 0 },
+      { demo: 0, minutes: 9, status: 'unpacking', operator: '李婷', condition: '拆包中', note: '', duration: 0 }
+    ];
+
+    const parcels = specs.map((spec, index) => {
+      const demo = DEMO_PACKAGES[spec.demo];
+      return {
+        id: makeId('JD', index),
+        tracking: demo.tracking,
+        order: demo.order,
+        product: demo.product,
+        sku: demo.sku,
+        category: demo.category,
+        quantity: demo.quantity,
+        supplier: demo.supplier,
+        box: demo.box,
+        weight: demo.weight,
+        status: spec.status,
+        operator: spec.operator,
+        station: '3号拆包台',
+        condition: spec.condition,
+        note: spec.note,
+        duration: spec.duration,
+        createdAt: ago(spec.minutes),
+        unpackedAt: spec.status === 'done' || spec.status === 'anomaly' ? ago(spec.minutes - 3) : null
+      };
+    });
+
+    const anomalies = [
+      {
+        id: makeId('AX', 0),
+        parcelId: parcels[11].id,
+        tracking: parcels[11].tracking,
+        type: '商品少件',
+        severity: '高',
+        status: 'pending',
+        description: '外包装完好，开箱后缺少标配电源线',
+        createdAt: ago(96),
+        handler: '王师傅',
+        resolvedAt: null
+      },
+      {
+        id: makeId('AX', 1),
+        parcelId: parcels[3].id,
+        tracking: parcels[3].tracking,
+        type: '外包装破损',
+        severity: '中',
+        status: 'resolved',
+        description: '箱体侧面有破洞，已补拍照片上传',
+        createdAt: ago(320),
+        handler: '陈刚',
+        resolvedAt: ago(286)
+      }
+    ];
+
+    return {
+      settings: { goal: 120, operator: 'admin', station: '3号拆包台' },
+      parcels,
+      anomalies
+    };
+  }
+
+  function loadState() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (err) {
+      console.warn(err);
+    }
+    return seedState();
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      console.warn(err);
+    }
+  }
+
+  function icon(name) {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function formatTime(iso) {
+    if (!iso) return '--';
+    const d = new Date(iso);
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function formatDuration(seconds) {
+    if (!seconds) return '--';
+    return `${Math.floor(seconds / 60)}分${pad(seconds % 60)}秒`;
+  }
+
+  function isSameDay(iso, now = new Date()) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  }
+
+  function statusBadge(status) {
+    const labels = {
+      done: '已完成',
+      pending: '待拆包',
+      unpacking: '拆包中',
+      anomaly: '异常'
+    };
+    return `<span class="status status-${status}">${labels[status] || status}</span>`;
+  }
+
+  function formatPerformingModel(value) {
+    const map = {
+      '01': '维修',
+      REPAIR: '维修',
+      '02': '换新',
+      CHANGE_NEW: '换新',
+      '05': '补贴',
+      SUBSIDY: '补贴',
+      '08': '退货',
+      SALES_RETURN: '退货',
+      '10': '增值服务',
+      ADD_VALUE: '增值服务',
+      '11': '服务中台',
+      SERVICE_PLATFORM_THIRD_PART_RIGHT: '服务中台'
+    };
+    return value && map[value] ? map[value] : (value || '--');
+  }
+
+  function apiUrl(path) {
+    const base = (localStorage.getItem('jd_api_base') || '').replace(/\/+$/, '');
+    return base + path;
+  }
+
+  function bridgeOrigin() {
+    const base = (localStorage.getItem('jd_api_base') || '').replace(/\/+$/, '');
+    return base || location.origin;
+  }
+
+  function toast(message, type = 'success') {
+    const wrap = document.getElementById('toastWrap');
+    const node = document.createElement('div');
+    node.className = `toast ${type === 'error' ? 'error' : ''}`;
+    node.innerHTML = `${icon(type === 'error' ? 'alert' : 'check')}<span>${escapeHtml(message)}</span>`;
+    wrap.appendChild(node);
+    setTimeout(() => node.remove(), 2600);
+  }
+
+  function switchView(view) {
+    document.querySelectorAll('.view').forEach((node) => node.classList.toggle('active', node.id === `view-${view}`));
+    document.querySelectorAll('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
+    const meta = {
+      dashboard: ['工作台', '北京保险服务中心 · 拆包作业'],
+      scan: ['扫码拆包', '扫码或输入运单号处理包裹'],
+      parcels: ['历史记录', '查询历史拆包记录'],
+      anomalies: ['异常处理', '少件、破损、错发等异常闭环']
+    };
+    document.getElementById('pageTitle').textContent = meta[view][0];
+    document.getElementById('pageSubtitle').textContent = meta[view][1];
+    if (view === 'dashboard') renderDashboard();
+    if (view === 'parcels') renderParcels();
+    if (view === 'anomalies') renderAnomalies();
+  }
+
+  function renderDashboard() {
+    const now = new Date();
+    const doneToday = state.parcels.filter((p) => p.status === 'done' && isSameDay(p.unpackedAt, now));
+    const pending = state.parcels.filter((p) => p.status === 'pending' || p.status === 'unpacking').length;
+    const openAnomalies = state.anomalies.filter((a) => a.status === 'pending').length;
+    const avgSeconds = doneToday.length
+      ? Math.round(doneToday.reduce((sum, p) => sum + (p.duration || 0), 0) / doneToday.length)
+      : 0;
+    const goal = state.settings.goal || 120;
+    const progress = Math.min(100, Math.round((doneToday.length / goal) * 100));
+
+    document.getElementById('goalText').textContent = `${doneToday.length} / ${goal}`;
+    document.getElementById('goalFill').style.width = `${progress}%`;
+    document.getElementById('goalSub').textContent = `今日完成 ${doneToday.length} 件，目标完成率 ${progress}%`;
+
+    const stats = [
+      { label: '今日已拆包', value: doneToday.length, delta: `目标 ${goal} 件`, icon: 'package', tone: 'red' },
+      { label: '待处理包裹', value: pending, delta: '含拆包中', icon: 'clock', tone: 'blue' },
+      { label: '待处理异常', value: openAnomalies, delta: '需人工复核', icon: 'alert', tone: 'amber' },
+      { label: '平均耗时', value: formatDuration(avgSeconds), delta: doneToday.length ? '作业效率稳定' : '暂无完成数据', icon: 'timer', tone: 'green' }
+    ];
+
+    document.getElementById('statGrid').innerHTML = stats.map((stat) => `
+      <article class="stat">
+        <div class="stat-icon ${stat.tone}">${icon(stat.icon)}</div>
+        <div class="stat-copy">
+          <div class="stat-label">${stat.label}</div>
+          <div class="stat-value">${escapeHtml(stat.value)}</div>
+          <div class="stat-delta">${escapeHtml(stat.delta)}</div>
+        </div>
+      </article>
+    `).join('');
+
+    const buckets = Array.from({ length: 8 }, (_, index) => {
+      const start = new Date(now);
+      start.setHours(now.getHours() - 7 + index, 0, 0, 0);
+      const end = new Date(start);
+      end.setHours(start.getHours() + 1, 0, 0, 0);
+      const count = doneToday.filter((p) => {
+        const time = new Date(p.unpackedAt).getTime();
+        return time >= start.getTime() && time < end.getTime();
+      }).length;
+      return { label: `${pad(start.getHours())}:00`, count };
+    });
+    const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+    document.getElementById('hourChart').innerHTML = buckets.map((bucket) => `
+      <div class="chart-col">
+        <span class="bar-value">${bucket.count}</span>
+        <div class="bar-fill" style="height:${Math.max(8, Math.round((bucket.count / maxCount) * 86))}px"></div>
+        <span class="bar-label">${bucket.label}</span>
+      </div>
+    `).join('');
+
+    const pendingAnomalies = state.anomalies.filter((a) => a.status === 'pending').slice(0, 4);
+    document.getElementById('anomalyList').innerHTML = pendingAnomalies.length
+      ? pendingAnomalies.map((a) => `
+        <div class="anomaly-item">
+          ${icon('alert')}
+          <div>
+            <strong>${escapeHtml(a.tracking)} · ${escapeHtml(a.type)}</strong>
+            <p>${escapeHtml(a.description)}</p>
+            <span class="status status-${a.status === 'resolved' ? 'resolved' : 'anomaly'}">${a.status === 'resolved' ? '已处理' : '待处理'}</span>
+          </div>
+        </div>
+      `).join('')
+      : '<div class="empty-row"><span style="color:var(--text-3)">暂无待处理异常</span></div>';
+
+    const recent = state.parcels
+      .filter((p) => p.status === 'done')
+      .sort((a, b) => new Date(b.unpackedAt) - new Date(a.unpackedAt))
+      .slice(0, 6);
+    document.getElementById('recentTbody').innerHTML = recent.length
+      ? recent.map((p) => `
+        <tr class="clickable" data-detail="${p.id}">
+          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong><span>${escapeHtml(p.order)}</span></div></td>
+          <td><div class="parcel-main"><strong>${escapeHtml(p.product)}</strong><span>${escapeHtml(p.sku)}</span></div></td>
+          <td>${escapeHtml(p.operator)}</td>
+          <td>${formatTime(p.unpackedAt)}</td>
+          <td>${formatDuration(p.duration)}</td>
+          <td>${statusBadge(p.status)}</td>
+        </tr>
+      `).join('')
+      : '<tr class="empty-row"><td colspan="6">暂无今日拆包记录</td></tr>';
+  }
+
+  function renderScan() {
+    const result = document.getElementById('scanResult');
+    const work = document.getElementById('scanWork');
+    if (!currentScan) {
+      result.classList.remove('hidden');
+      work.classList.add('hidden');
+      return;
+    }
+    result.classList.add('hidden');
+    work.classList.remove('hidden');
+
+    const p = currentScan;
+    const statusLine = p.__index >= 0
+      ? `已存在包裹 · ${statusBadge(p.status)}`
+      : '新包裹 · 核对后确认拆包';
+    document.getElementById('scanTitle').textContent = p.status === 'done' ? '包裹已处理' : '包裹信息';
+    document.getElementById('scanStatusLine').innerHTML = statusLine;
+
+    const jd = jdRepairResult && jdRepairResult.ok && jdRepairResult.found
+      ? jdRepairResult
+      : (p.jdRepair && p.jdRepair.ok && p.jdRepair.found ? p.jdRepair : null);
+    document.getElementById('scanMeta').innerHTML = [
+      ['运单号', p.tracking],
+      ['履约单号', jd ? (jd.performingOrderNo || p.order) : p.order],
+      ['主商品三级类目', jd ? (jd.category || p.category) : p.category],
+      ['门店名称', jd ? (jd.shopName || p.supplier) : p.supplier],
+      ['履约模式', jd ? formatPerformingModel(jd.performingModel) : '--'],
+      ['备件条码', jd ? (jd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--')]
+    ].map(([label, value]) => `
+      <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
+    `).join('');
+
+    document.getElementById('scanProducts').innerHTML = Array.from({ length: p.quantity }, (_, index) => `
+      <label class="product-item">
+        <input type="checkbox" class="item-check" checked>
+        <span class="product-icon">${icon('box')}</span>
+        <span class="product-info">
+          <strong>${escapeHtml(p.product)}</strong>
+          <span>${escapeHtml(p.sku)} · 第 ${index + 1} 件</span>
+        </span>
+        <span class="quantity">× 1</span>
+      </label>
+    `).join('');
+  }
+
+  function applyJdRepairData(data, code, seq) {
+    if (seq !== jdQuerySeq) return;
+    jdRepairResult = data;
+    if (data && data.ok && data.found && currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
+      const commit = (data.detail && data.detail.repairCommitInfoDto) || {};
+      Object.assign(currentScan, {
+        product: data.productName || commit.outerMainSkuName || commit.outerSkuName || currentScan.product,
+        sku: data.sku || commit.outerSku || currentScan.sku,
+        category: data.category || currentScan.category,
+        order: data.performingOrderNo || currentScan.order,
+        supplier: data.shopName || currentScan.supplier,
+        performingModel: data.performingModel || currentScan.performingModel || '--',
+        partBarcode: data.partBarcode || currentScan.partBarcode || '',
+        jdRepair: data
+      });
+      if (currentScan.__index >= 0) {
+        state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
+      }
+    }
+    renderScan();
+    if (data && data.ok && data.found && !data.partBarcode && data.performingOrderNo) {
+      fetchPartBarcode(data.performingOrderNo, code, seq);
+    }
+  }
+
+  async function fetchPartBarcode(merchantOrderNo, code, seq) {
+    const jdlToken = localStorage.getItem('jd_jdl_token') || '';
+    if (!jdlToken) return;
+    try {
+      const response = await fetch(apiUrl('/api/repair/part-barcode'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchantOrderNo, jdlToken })
+      });
+      const data = await response.json();
+      if (seq !== jdQuerySeq || !data || !data.ok || !data.partBarcode) return;
+      if (jdRepairResult) jdRepairResult.partBarcode = data.partBarcode;
+      if (currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
+        currentScan.partBarcode = data.partBarcode;
+        if (currentScan.jdRepair) currentScan.jdRepair.partBarcode = data.partBarcode;
+        if (currentScan.__index >= 0) {
+          state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
+        }
+      }
+      renderScan();
+    } catch (error) {
+      // 备件条码查询失败时保留原包裹信息。
+    }
+  }
+
+  function startJdPolling(code, seq) {
+    clearInterval(jdPollTimer);
+    let attempts = 0;
+    jdPollTimer = setInterval(async () => {
+      attempts += 1;
+      if (seq !== jdQuerySeq || attempts > 60) {
+        clearInterval(jdPollTimer);
+        return;
+      }
+      try {
+        const response = await fetch(apiUrl(`/api/repair/latest?tracking=${encodeURIComponent(code)}`));
+        const data = await response.json();
+        if (seq !== jdQuerySeq) {
+          clearInterval(jdPollTimer);
+          return;
+        }
+        if (data && data.ok && data.found) {
+          clearInterval(jdPollTimer);
+          applyJdRepairData(data, code, seq);
+        }
+      } catch (error) {
+        // The local bridge may not be ready yet; keep polling.
+      }
+    }, 1500);
+  }
+
+  function buildJdPageSnippet() {
+    const bridge = bridgeOrigin();
+    return [
+      '(async () => {',
+      '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const expressNo = prompt("输入京东快递单号");',
+      '  if (!expressNo) return;',
+      '  const userInfo = localStorage.getItem("userInfo") || "";',
+      '  const userId = (() => { try { return userInfo ? encodeURIComponent(JSON.parse(userInfo)) : ""; } catch (e) { return encodeURIComponent(userInfo); } })();',
+      '  const headers = {"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":localStorage.getItem("systemCode") || ""};',
+      '  let shopCode = "";',
+      '  let facilitatorCode = "";',
+      '  const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:headers,body:"{}"}).then(r => r.json());',
+      '  const shopRow = shops && shops.success && shops.values && shops.values[0] ? shops.values[0] : {};',
+      '  shopCode = shopRow.code || "";',
+      '  facilitatorCode = shopRow.facilitatorCode || "";',
+      '  const shopName = shopRow.shopName || shopRow.name || "";',
+      '  const query = {expressNo: expressNo.toUpperCase()};',
+      '  if (shopCode) query.shopCode = shopCode;',
+      '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({pageIndex:1,pageSize:10,query:query})}).then(r => r.json());',
+      '  console.log("京东查询响应", list);',
+      '  if (!list.success || !list.values || !list.values.length) { alert("京东查询失败：" + (list.msg || list.error || "NotLogin")); return; }',
+      '  const row = list.values[0];',
+      '  const detail = await fetch("https://baozang-out.jd.com/serviceOrder/serviceOrderDetail", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({serviceOrderNo:row.serviceOrderNo,facilitatorCode:row.facilitatorCode || facilitatorCode,shopCode:row.shopCode || shopCode,performingOrderState:row.serviceState || row.performingOrderState})}).then(r => r.json());',
+      '  console.log("详情查询响应", detail);',
+      '  if (!detail.success) { alert("详情查询失败：" + (detail.msg || detail.error || "NotLogin")); return; }',
+      '  const commit = (detail.value || {}).repairCommitInfoDto || {};',
+      '  const receive = (detail.value || {}).receiveMaintainOrderInfoDto || {};',
+      '  const expressList = receive.expressInfoDtoList || [];',
+      '  const expressNoValue = row.expressNo || receive.expressNo || (expressList[0] && expressList[0].expressNo) || expressNo.toUpperCase();',
+      '  const perfMap = {"01":"维修","REPAIR":"维修","02":"换新","CHANGE_NEW":"换新","05":"补贴","SUBSIDY":"补贴","08":"退货","SALES_RETURN":"退货","10":"增值服务","ADD_VALUE":"增值服务","11":"服务中台","SERVICE_PLATFORM_THIRD_PART_RIGHT":"服务中台"};',
+      '  const performingModel = commit.performanceTypeEnum === "ADD_VALUE" || commit.performanceTypeEnum === "10" ? (commit.leafPerformingModelName || "增值服务") : (perfMap[commit.performanceTypeEnum] || commit.leafPerformingModelName || commit.performanceTypeEnum || "未知状态");',
+      '  const result = {ok:true,found:true,tracking:expressNo.toUpperCase(),performingOrderNo:commit.performingOrderNo || row.performingOrderNo || row.performingNo,serviceOrderNo:row.serviceOrderNo || commit.serviceOrderNo,category:commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory,expressNo:expressNoValue,productName:commit.outerMainSkuName || commit.outerSkuName || row.outerMainSkuName || row.outerSkuName,sku:commit.outerSku || row.outerSku,brand:commit.outerMainSkuBrand,model:commit.mainSkuModel,performingModel:performingModel,shopName:shopName,detail:detail.value};',
+      '  await fetch(bridge + "/api/repair/import", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tracking:expressNo.toUpperCase(),result:result})});',
+      '  alert("已发送到拆包系统");',
+      '})();'
+    ].join('\n');
+  }
+
+  function buildJdlTokenSnippet() {
+    const bridge = bridgeOrigin();
+    return [
+      '(async () => {',
+      '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const m = document.cookie.match(/(?:^|; )pin=([^;]+)/);',
+      '  const token = m ? m[1] : "";',
+      '  if (!token) { alert("未找到 pin，请确认已登录 jdservice.jdl.com"); return; }',
+      '  const r = await fetch(bridge + "/api/repair/set-jdl-token", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jdlToken:token})});',
+      '  const d = await r.json();',
+      '  alert(d.ok ? "已自动配置京东物流 Token" : "配置失败：" + (d.error || ""));',
+      '})();'
+    ].join('\n');
+  }
+
+  async function queryJdRepair(code) {
+    const seq = ++jdQuerySeq;
+    const cookie = localStorage.getItem('jd_cookie') || '';
+    const userId = localStorage.getItem('jd_userId') || '';
+    const appCode = localStorage.getItem('jd_appCode') || '';
+    const shopCode = localStorage.getItem('jd_shopCode') || '';
+    const jdlToken = localStorage.getItem('jd_jdl_token') || '';
+    jdRepairResult = { loading: true, tracking: code };
+    try {
+      const response = await fetch(apiUrl('/api/repair/query'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken })
+      });
+      const data = await response.json();
+      if (seq !== jdQuerySeq) return;
+      if (data && data.ok === false && /notlogin|未登录/i.test(String(data.error || ''))) {
+        jdRepairResult = {
+          ok: false,
+          waiting: true,
+          error: '未登录：请在设置中复制抓取命令，并在京东维修页面控制台执行',
+          tracking: code
+        };
+        toast('未登录：请在设置中复制抓取命令，并在京东维修页面控制台执行', 'error');
+        startJdPolling(code, seq);
+        return;
+      }
+      applyJdRepairData(data, code, seq);
+    } catch (error) {
+      if (seq !== jdQuerySeq) return;
+      jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
+    }
+  }
+
+  function lookupTracking(code) {
+    const normalized = code.trim();
+    if (!normalized) {
+      toast('请输入或扫描运单号', 'error');
+      return;
+    }
+    queryJdRepair(normalized);
+
+    const existingIndex = state.parcels.findIndex((p) => p.tracking.toLowerCase() === normalized.toLowerCase());
+    if (existingIndex >= 0) {
+      const existing = state.parcels[existingIndex];
+      if (existing.status === 'done' || existing.status === 'anomaly') {
+        currentScan = null;
+        renderScan();
+        openParcelDetail(existing.id);
+        toast('该包裹已处理，可查看详情');
+        return;
+      }
+      currentScan = { ...existing, __index: existingIndex };
+      renderScan();
+      return;
+    }
+
+    const demo = DEMO_PACKAGES.find((p) => p.tracking.toLowerCase() === normalized.toLowerCase());
+    const nowIso = new Date().toISOString();
+    currentScan = {
+      ...(demo || {
+        tracking: normalized,
+        order: `JD-${dateNum()}-${Date.now().toString().slice(-4)}`,
+        product: '待核对商品',
+        sku: '待扫描',
+        category: '综合',
+        quantity: 1,
+        supplier: '京东自营',
+        box: '标准纸箱',
+        weight: '--'
+      }),
+      id: `JD${dateNum()}${Date.now().toString().slice(-5)}`,
+      status: 'pending',
+      operator: state.settings.operator,
+      station: state.settings.station,
+      createdAt: nowIso,
+      unpackedAt: null,
+      condition: '完好',
+      note: '',
+      duration: 0,
+      __index: -1
+    };
+    if (!demo) toast('未匹配到预置商品，按待核对处理', 'error');
+    renderScan();
+  }
+
+  function simulateScan() {
+    const doneTracking = new Set(state.parcels.filter((p) => p.status === 'done' || p.status === 'anomaly').map((p) => p.tracking.toLowerCase()));
+    const candidates = DEMO_PACKAGES.filter((p) => !doneTracking.has(p.tracking.toLowerCase()));
+    const demo = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : DEMO_PACKAGES[Math.floor(Math.random() * DEMO_PACKAGES.length)];
+    document.getElementById('trackingInput').value = demo.tracking;
+    lookupTracking(demo.tracking);
+  }
+
+  function buildParcelFromScan(forcedAnomaly = false) {
+    const checks = document.querySelectorAll('.item-check');
+    const checkedCount = Array.from(checks).filter((node) => node.checked).length;
+    const condition = document.querySelector('input[name="condition"]:checked')?.value || '完好';
+    const note = document.getElementById('scanNote').value.trim();
+    const missingCount = currentScan.quantity - checkedCount;
+    const hasAnomaly = forcedAnomaly || missingCount > 0 || condition === '破损';
+    const duration = hasAnomaly ? Math.round(180 + Math.random() * 180) : Math.round(120 + Math.random() * 240);
+    const nowIso = new Date().toISOString();
+
+    const parcel = {
+      id: currentScan.id,
+      tracking: currentScan.tracking,
+      order: currentScan.order,
+      product: currentScan.product,
+      sku: currentScan.sku,
+      category: currentScan.category,
+      quantity: currentScan.quantity,
+      supplier: currentScan.supplier,
+      box: currentScan.box,
+      weight: currentScan.weight,
+      performingModel: currentScan.performingModel || null,
+      partBarcode: currentScan.partBarcode || null,
+      jdRepair: currentScan.jdRepair || null,
+      status: hasAnomaly ? 'anomaly' : 'done',
+      operator: state.settings.operator,
+      station: state.settings.station,
+      condition,
+      note,
+      duration,
+      createdAt: currentScan.createdAt || nowIso,
+      unpackedAt: nowIso
+    };
+
+    if (hasAnomaly) {
+      const type = forcedAnomaly ? '商品异常' : missingCount > 0 ? '商品少件' : '外包装破损';
+      state.anomalies.push({
+        id: `AX${dateNum()}${Date.now().toString().slice(-4)}`,
+        parcelId: parcel.id,
+        tracking: parcel.tracking,
+        type,
+        severity: condition === '破损' ? '高' : missingCount > 0 ? '高' : '中',
+        status: 'pending',
+        description: note || (missingCount > 0 ? `应到 ${currentScan.quantity} 件，实到 ${checkedCount} 件` : `外包装${condition}`),
+        createdAt: nowIso,
+        handler: state.settings.operator,
+        resolvedAt: null
+      });
+    }
+
+    if (currentScan.__index >= 0) {
+      state.parcels[currentScan.__index] = { ...parcel, __index: undefined };
+    } else {
+      delete parcel.__index;
+      state.parcels.push(parcel);
+    }
+    return { parcel, hasAnomaly };
+  }
+
+  function confirmUnpack(forcedAnomaly = false) {
+    if (!currentScan) {
+      toast('请先查询或扫描包裹', 'error');
+      return;
+    }
+    if (currentScan.__index >= 0 && (state.parcels[currentScan.__index].status === 'done' || state.parcels[currentScan.__index].status === 'anomaly')) {
+      toast('该包裹已完成处理', 'error');
+      return;
+    }
+    const { parcel, hasAnomaly } = buildParcelFromScan(forcedAnomaly);
+    saveState();
+    currentScan = null;
+    document.getElementById('trackingInput').value = '';
+    document.getElementById('scanNote').value = '';
+    renderAll();
+    toast(hasAnomaly ? `已登记异常：${parcel.tracking}` : `拆包完成：${parcel.tracking}`);
+    triggerBarcodePrint(parcel);
+  }
+
+  async function triggerBarcodePrint(parcel) {
+    const orderNo = parcel.order || (parcel.jdRepair && parcel.jdRepair.performingOrderNo) || '';
+    if (!orderNo) return;
+    try {
+      const response = await fetch(apiUrl('/api/print'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNo,
+          partCode: parcel.partBarcode || '',
+          barPrinterPath: localStorage.getItem('jd_bar_printer_path') || ''
+        })
+      });
+      const data = await response.json();
+      if (data && data.ok) {
+        toast('已触发条码打印');
+      } else {
+        toast(`条码打印失败：${data.error || data.output || '未知错误'}`, 'error');
+      }
+    } catch (error) {
+      toast('无法调用条码打印软件', 'error');
+    }
+  }
+
+  function openParcelDetail(id) {
+    const p = state.parcels.find((item) => item.id === id);
+    if (!p) return;
+    const related = state.anomalies.filter((a) => a.parcelId === p.id);
+    const detailJd = p.jdRepair && p.jdRepair.ok && p.jdRepair.found ? p.jdRepair : null;
+    const body = `
+      <div class="detail-grid">
+        ${[['运单号', p.tracking], ['履约单号', detailJd ? (detailJd.performingOrderNo || p.order) : p.order], ['主商品三级类目', detailJd ? (detailJd.category || p.category) : p.category], ['门店名称', detailJd ? (detailJd.shopName || p.supplier) : p.supplier], ['履约模式', detailJd ? formatPerformingModel(detailJd.performingModel) : '--'], ['备件条码', detailJd ? (detailJd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--')], ['操作员', p.operator], ['更新时间', formatTime(p.unpackedAt || p.createdAt)]].map(([label, value]) => `
+          <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
+        `).join('')}
+      </div>
+      <div class="detail-products">
+        ${Array.from({ length: p.quantity }, (_, index) => `
+          <div class="detail-product">
+            <div>
+              <strong>${escapeHtml(p.product)}</strong>
+              <span>${escapeHtml(p.sku)} · 第 ${index + 1} 件</span>
+            </div>
+            <span class="quantity">× 1</span>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${statusBadge(p.status)}
+        <span class="status ${p.condition === '破损' ? 'status-anomaly' : 'status-done'}">${escapeHtml(p.condition)}</span>
+      </div>
+      <div class="detail-note" style="margin-top:14px">${escapeHtml(p.note || '无备注')}</div>
+      ${related.length ? `<h3 class="section-label">关联异常</h3><div class="detail-products">${related.map((a) => `<div class="detail-product"><div><strong>${escapeHtml(a.type)} · ${escapeHtml(a.severity)}</strong><span>${escapeHtml(a.description)}</span></div><span class="status ${a.status === 'resolved' ? 'status-resolved' : 'status-anomaly'}">${a.status === 'resolved' ? '已处理' : '待处理'}</span></div>`).join('')}</div>` : ''}
+    `;
+    const footer = `
+      <button class="btn" id="detailPrintBtn" type="button">${icon('printer')}打印面单</button>
+      <button class="btn btn-primary" type="button" id="modalOk">关闭</button>
+    `;
+    openModal('包裹详情', body, footer);
+    document.getElementById('detailPrintBtn').addEventListener('click', () => printLabel(p));
+    document.getElementById('modalOk').addEventListener('click', closeModal);
+  }
+
+  function printLabel(parcel) {
+    const body = `
+      <div class="print-area">
+        <div class="label-head">
+          <strong>京东拆包作业面单</strong>
+          <span>${escapeHtml(parcel.station || state.settings.station)}</span>
+        </div>
+        <div class="label-grid">
+          <div><span>运单号</span><strong>${escapeHtml(parcel.tracking)}</strong></div>
+          <div><span>履约单号</span><strong>${escapeHtml(parcel.order)}</strong></div>
+          <div><span>商品</span><strong>${escapeHtml(parcel.product)}</strong></div>
+          <div><span>SKU / 数量</span><strong>${escapeHtml(parcel.sku)} × ${parcel.quantity}</strong></div>
+          <div><span>操作员</span><strong>${escapeHtml(parcel.operator || state.settings.operator)}</strong></div>
+          <div><span>完成时间</span><strong>${formatTime(parcel.unpackedAt || parcel.createdAt)}</strong></div>
+        </div>
+        <div class="barcode"></div>
+        <div class="label-no">${escapeHtml(parcel.tracking)}</div>
+      </div>
+    `;
+    openModal('打印面单', body, '<button class="btn btn-primary" type="button" onclick="window.print()">打印</button><button class="btn" type="button" id="modalOk">关闭</button>');
+    document.getElementById('modalOk').addEventListener('click', closeModal);
+  }
+
+  function openJdSettings() {
+    const cookie = localStorage.getItem('jd_cookie') || '';
+    const jdlToken = localStorage.getItem('jd_jdl_token') || '';
+    const barPrinterPath = localStorage.getItem('jd_bar_printer_path') || '';
+    const apiBase = localStorage.getItem('jd_api_base') || '';
+    const body = `
+      <label class="field-label" for="jdCookie">Cookie</label>
+      <textarea id="jdCookie" rows="5" placeholder="粘贴京东请求头中的 Cookie">${escapeHtml(cookie)}</textarea>
+      <label class="field-label" for="jdJdlToken">京东物流 Token（可选）</label>
+      <input class="search-input" id="jdJdlToken" value="${escapeHtml(jdlToken)}" placeholder="粘贴 jdservice.jdl.com 的 pin / X-Access-Token">
+      <label class="field-label" for="jdBarPrinterPath">条码打印软件路径（可选）</label>
+      <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
+      <label class="field-label" for="jdApiBase">本地服务地址（可选）</label>
+      <input class="search-input" id="jdApiBase" value="${escapeHtml(apiBase)}" placeholder="例如 http://127.0.0.1:9090 或 http://192.168.0.101:9090">
+      <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
+      <div class="action-row" style="margin-top:14px">
+        <button class="btn" id="jdCopySnippet" type="button">复制京东页面抓取命令</button>
+        <button class="btn" id="jdCopyPinCmd" type="button">复制获取物流Token命令</button>
+        <button class="btn" id="jdAutoPinCmd" type="button">复制自动配置物流Token命令</button>
+        <button class="btn btn-danger" id="jdResetBtn" type="button">重置演示数据</button>
+      </div>
+    `;
+    openModal('京东接口设置', body, '<button class="btn btn-primary" type="button" id="jdSaveBtn">保存</button>');
+    document.getElementById('jdSaveBtn').addEventListener('click', saveJdSettings);
+    document.getElementById('jdCopySnippet').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(buildJdPageSnippet());
+        toast('京东页面抓取命令已复制');
+      } catch (err) {
+        toast('复制失败，请手动复制', 'error');
+      }
+    });
+    document.getElementById('jdCopyPinCmd').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText('copy((document.cookie.match(/(?:^|; )pin=([^;]+)/) || [])[1] || "")');
+        toast('获取物流Token命令已复制');
+      } catch (err) {
+        toast('复制失败，请手动复制', 'error');
+      }
+    });
+    document.getElementById('jdAutoPinCmd').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(buildJdlTokenSnippet());
+        toast('自动配置物流Token命令已复制');
+      } catch (err) {
+        toast('复制失败，请手动复制', 'error');
+      }
+    });
+    document.getElementById('jdResetBtn').addEventListener('click', () => {
+      closeModal();
+      resetDemo();
+    });
+  }
+
+  function saveJdSettings() {
+    localStorage.setItem('jd_cookie', document.getElementById('jdCookie').value.trim());
+    localStorage.setItem('jd_jdl_token', document.getElementById('jdJdlToken').value.trim());
+    localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
+    localStorage.setItem('jd_api_base', document.getElementById('jdApiBase').value.trim());
+    closeModal();
+    toast('京东接口设置已保存');
+  }
+
+  function openModal(title, body, footer) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = body;
+    document.getElementById('modalFooter').innerHTML = footer;
+    document.getElementById('modalBackdrop').classList.add('active');
+  }
+
+  function closeModal() {
+    document.getElementById('modalBackdrop').classList.remove('active');
+    stopCamera();
+  }
+
+  function renderParcels() {
+    const search = document.getElementById('parcelSearch').value.trim().toLowerCase();
+    const status = document.getElementById('parcelStatus').value;
+    const date = document.getElementById('parcelDate').value;
+    let list = [...state.parcels].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    if (status !== 'all') list = list.filter((p) => p.status === status);
+    if (search) {
+      list = list.filter((p) => [p.tracking, p.order].some((value) => String(value).toLowerCase().includes(search)));
+    }
+    if (date) {
+      list = list.filter((p) => new Date(p.createdAt).toISOString().slice(0, 10) === date);
+    }
+
+    document.getElementById('parcelCount').textContent = `${list.length} 条`;
+    document.getElementById('parcelSubtitle').textContent = `当前筛选：${status === 'all' ? '全部状态' : statusBadge(status).replace(/<[^>]+>/g, '')}${date ? ` · ${date}` : ''}`;
+    document.getElementById('parcelTbody').innerHTML = list.length
+      ? list.map((p) => `
+        <tr class="clickable" data-detail="${p.id}">
+          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong></div></td>
+          <td>${escapeHtml(p.order)}</td>
+          <td><div class="parcel-main"><strong>${escapeHtml(p.product)}</strong><span>${escapeHtml(p.sku)} · ${escapeHtml(p.supplier)}</span></div></td>
+          <td>${statusBadge(p.status)}</td>
+          <td>${escapeHtml(p.operator)}</td>
+          <td>${formatTime(p.unpackedAt || p.createdAt)}</td>
+          <td><button class="mini-btn" type="button" data-detail-btn="${p.id}">详情</button></td>
+        </tr>
+      `).join('')
+      : '<tr class="empty-row"><td colspan="7">没有匹配的包裹</td></tr>';
+  }
+
+  function renderAnomalies() {
+    const pending = state.anomalies.filter((a) => a.status === 'pending');
+    const high = state.anomalies.filter((a) => a.severity === '高' && a.status === 'pending').length;
+    const resolved = state.anomalies.filter((a) => a.status === 'resolved').length;
+    document.getElementById('anomalyStatGrid').innerHTML = `
+      <article class="anomaly-stat high"><div><span>高优先级</span><small style="display:block;color:var(--text-3)">待处理</small></div><strong>${high}</strong></article>
+      <article class="anomaly-stat pending"><div><span>待处理异常</span><small style="display:block;color:var(--text-3)">全部类型</small></div><strong>${pending.length}</strong></article>
+      <article class="anomaly-stat resolved"><div><span>已处理</span><small style="display:block;color:var(--text-3)">本月闭环</small></div><strong>${resolved}</strong></article>
+    `;
+
+    const toggle = document.getElementById('anomalyToggle');
+    toggle.textContent = onlyPendingAnomalies ? '显示全部' : '只看待处理';
+    const list = state.anomalies
+      .filter((a) => !onlyPendingAnomalies || a.status === 'pending')
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    document.getElementById('anomalyTbody').innerHTML = list.length
+      ? list.map((a) => `
+        <tr>
+          <td>${escapeHtml(a.id)}</td>
+          <td>${escapeHtml(a.tracking)}</td>
+          <td>${escapeHtml(a.type)}</td>
+          <td><span class="status ${a.severity === '高' ? 'status-anomaly' : 'status-pending'}">${escapeHtml(a.severity)}</span></td>
+          <td style="max-width:280px">${escapeHtml(a.description)}</td>
+          <td>${formatTime(a.createdAt)}</td>
+          <td>${a.status === 'resolved' ? '<span class="status status-resolved">已处理</span>' : '<span class="status status-anomaly">待处理</span>'}</td>
+          <td>${a.status === 'resolved' ? `<span class="status status-done">${escapeHtml(a.handler || '--')}</span>` : `<button class="mini-btn primary" type="button" data-resolve="${a.id}">处理</button>`}</td>
+        </tr>
+      `).join('')
+      : '<tr class="empty-row"><td colspan="8">没有异常记录</td></tr>';
+  }
+
+  function resolveAnomaly(id) {
+    const anomaly = state.anomalies.find((a) => a.id === id);
+    if (!anomaly) return;
+    anomaly.status = 'resolved';
+    anomaly.resolvedAt = new Date().toISOString();
+    anomaly.handler = state.settings.operator;
+    saveState();
+    renderAll();
+    toast(`异常已处理：${anomaly.tracking}`);
+  }
+
+  function renderAll() {
+    renderDashboard();
+    renderParcels();
+    renderAnomalies();
+    renderScan();
+  }
+
+  function resetDemo() {
+    localStorage.removeItem(STORAGE_KEY);
+    state = loadState();
+    currentScan = null;
+    jdQuerySeq += 1;
+    jdRepairResult = null;
+    document.getElementById('trackingInput').value = '';
+    document.getElementById('scanNote').value = '';
+    document.getElementById('parcelSearch').value = '';
+    document.getElementById('parcelStatus').value = 'all';
+    document.getElementById('parcelDate').value = '';
+    onlyPendingAnomalies = false;
+    renderAll();
+    toast('演示数据已重置');
+  }
+
+  function clearParcels() {
+    if (!state.parcels.length) {
+      toast('历史记录已为空');
+      return;
+    }
+    if (!confirm('确定清空全部包裹历史记录？')) return;
+    state.parcels = [];
+    currentScan = null;
+    jdQuerySeq += 1;
+    jdRepairResult = null;
+    saveState();
+    renderAll();
+    toast('包裹历史已清空');
+  }
+
+  async function openCamera() {
+    if (!navigator.mediaDevices || !('BarcodeDetector' in window)) {
+      toast('当前浏览器不支持摄像头扫码，请手动输入', 'error');
+      return;
+    }
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    } catch (err) {
+      toast('无法访问摄像头', 'error');
+      return;
+    }
+    const body = `
+      <div class="camera-wrap">
+        <video id="cameraVideo" autoplay playsinline></video>
+        <div class="camera-status">正在识别条码，请将条码对准取景框</div>
+      </div>
+    `;
+    openModal('扫码识别', body, '<button class="btn btn-primary" type="button" id="cameraStop">停止识别</button>');
+    const video = document.getElementById('cameraVideo');
+    video.srcObject = cameraStream;
+    await video.play();
+    let detector;
+    try {
+      detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] });
+    } catch (err) {
+      closeCameraModal();
+      toast('无法启动条码识别', 'error');
+      return;
+    }
+    cameraTimer = setInterval(async () => {
+      if (!video.videoWidth) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length) {
+          const value = codes[0].rawValue;
+          closeCameraModal();
+          document.getElementById('trackingInput').value = value;
+          lookupTracking(value);
+        }
+      } catch (err) {
+        clearInterval(cameraTimer);
+        cameraTimer = null;
+      }
+    }, 700);
+    document.getElementById('cameraStop').addEventListener('click', closeCameraModal);
+  }
+
+  function closeCameraModal() {
+    clearInterval(cameraTimer);
+    cameraTimer = null;
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
+    closeModal();
+  }
+
+  function stopCamera() {
+    clearInterval(cameraTimer);
+    cameraTimer = null;
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
+  }
+
+  function hydrateIcons() {
+    document.querySelectorAll('[data-icon]').forEach((node) => {
+      node.innerHTML = icon(node.dataset.icon);
+    });
+  }
+
+  document.querySelectorAll('.nav-item').forEach((button) => {
+    button.addEventListener('click', () => {
+      location.hash = button.dataset.view;
+      switchView(button.dataset.view);
+    });
+  });
+  document.querySelectorAll('[data-view-link]').forEach((button) => {
+    button.addEventListener('click', () => switchView(button.dataset.viewLink));
+  });
+  document.querySelectorAll('.sample-chip').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.getElementById('trackingInput').value = button.dataset.tracking;
+      lookupTracking(button.dataset.tracking);
+    });
+  });
+
+  document.getElementById('lookupBtn').addEventListener('click', () => lookupTracking(document.getElementById('trackingInput').value));
+  document.getElementById('trackingInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') lookupTracking(document.getElementById('trackingInput').value);
+  });
+  document.getElementById('simulateBtn').addEventListener('click', simulateScan);
+  document.getElementById('cameraBtn').addEventListener('click', openCamera);
+  document.getElementById('confirmBtn').addEventListener('click', () => confirmUnpack(false));
+  document.getElementById('anomalyBtn').addEventListener('click', () => confirmUnpack(true));
+  document.getElementById('printCurrentBtn').addEventListener('click', () => currentScan && printLabel(currentScan));
+  document.getElementById('jdSettingsBtn').addEventListener('click', openJdSettings);
+
+  document.getElementById('parcelSearch').addEventListener('input', renderParcels);
+  document.getElementById('parcelStatus').addEventListener('change', renderParcels);
+  document.getElementById('parcelDate').addEventListener('change', renderParcels);
+  document.getElementById('refreshParcels').addEventListener('click', renderParcels);
+  document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
+
+  document.getElementById('parcelTbody').addEventListener('click', (event) => {
+    const detailButton = event.target.closest('[data-detail-btn]');
+    if (detailButton) {
+      openParcelDetail(detailButton.dataset.detailBtn);
+      return;
+    }
+    const row = event.target.closest('tr[data-detail]');
+    if (row) openParcelDetail(row.dataset.detail);
+  });
+  document.getElementById('recentTbody').addEventListener('click', (event) => {
+    const row = event.target.closest('tr[data-detail]');
+    if (row) openParcelDetail(row.dataset.detail);
+  });
+
+  document.getElementById('anomalyToggle').addEventListener('click', () => {
+    onlyPendingAnomalies = !onlyPendingAnomalies;
+    renderAnomalies();
+  });
+  document.getElementById('anomalyTbody').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-resolve]');
+    if (button) resolveAnomaly(button.dataset.resolve);
+  });
+
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('modalBackdrop').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeModal();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeModal();
+  });
+
+  function applyHash() {
+    const view = location.hash.slice(1);
+    if (['dashboard', 'scan', 'parcels', 'anomalies'].includes(view)) switchView(view);
+  }
+  window.addEventListener('hashchange', applyHash);
+
+  hydrateIcons();
+  applyHash();
+  renderAll();
+</script>
+</body>
+</html>
