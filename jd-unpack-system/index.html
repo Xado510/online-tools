@@ -1103,12 +1103,12 @@
   }
 
   function apiUrl(path) {
-    const base = (localStorage.getItem('jd_api_base') || '').replace(/\/+$/, '');
+    const base = (localStorage.getItem('jd_api_base') || 'http://192.168.0.101:9090').replace(/\/+$/, '');
     return base + path;
   }
 
   function bridgeOrigin() {
-    const base = (localStorage.getItem('jd_api_base') || '').replace(/\/+$/, '');
+    const base = (localStorage.getItem('jd_api_base') || 'http://192.168.0.101:9090').replace(/\/+$/, '');
     return base || location.origin;
   }
 
@@ -1441,6 +1441,7 @@
     } catch (error) {
       if (seq !== jdQuerySeq) return;
       jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
+      toast('无法连接本地京东查询服务，请检查设置里的本地服务地址', 'error');
     }
   }
 
