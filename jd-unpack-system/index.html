@@ -1287,14 +1287,20 @@
       }
     }
     renderScan();
-    if (data && data.ok && data.found && !data.partBarcode && data.performingOrderNo) {
-      fetchPartBarcode(data.performingOrderNo, code, seq);
+    const lookupKey = (data && (data.performingOrderNo || data.merchantOrderNo || data.serviceBillNo || data.afsServiceBillNo || data.serviceOrderNo)) || '';
+    if (data && data.ok && data.found && !data.partBarcode && lookupKey) {
+      fetchPartBarcode(lookupKey, code, seq);
+    } else if (data && data.ok && data.found && !data.partBarcode && !lookupKey) {
+      toast('未获取到履约单号，无法查询备件条码', 'error');
     }
   }
 
   async function fetchPartBarcode(merchantOrderNo, code, seq) {
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
-    if (!jdlToken) return;
+    if (!jdlToken) {
+      toast('请先执行展翅自动获取配置备件条码 Token', 'error');
+      return;
+    }
     try {
       const response = await fetch(apiUrl('/api/repair/part-barcode'), {
         method: 'POST',
@@ -1304,7 +1310,7 @@
       const data = await response.json();
       if (seq !== jdQuerySeq || !data || !data.ok) return;
       if (!data.partBarcode) {
-        toast('未查询到备件条码，请确认已执行展翅自动获取', 'error');
+        toast(data.error || '未查询到备件条码，请确认已执行展翅自动获取', 'error');
         return;
       }
       if (jdRepairResult) jdRepairResult.partBarcode = data.partBarcode;
@@ -1317,7 +1323,7 @@
       }
       renderScan();
     } catch (error) {
-      // 备件条码查询失败时保留原包裹信息。
+      toast('备件条码查询失败：' + (error.message || '无法连接服务'), 'error');
     }
   }
 
