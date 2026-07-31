@@ -1302,7 +1302,11 @@
         body: JSON.stringify({ merchantOrderNo, jdlToken })
       });
       const data = await response.json();
-      if (seq !== jdQuerySeq || !data || !data.ok || !data.partBarcode) return;
+      if (seq !== jdQuerySeq || !data || !data.ok) return;
+      if (!data.partBarcode) {
+        toast('未查询到备件条码，请确认已执行展翅自动获取', 'error');
+        return;
+      }
       if (jdRepairResult) jdRepairResult.partBarcode = data.partBarcode;
       if (currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
         currentScan.partBarcode = data.partBarcode;
