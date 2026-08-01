@@ -1103,12 +1103,12 @@
   }
 
   function apiUrl(path) {
-    const base = (localStorage.getItem('jd_api_base') || 'http://192.168.0.101:9090').replace(/\/+$/, '');
+    const base = (localStorage.getItem('jd_api_base') || 'https://contacted-read-chapters-seven.trycloudflare.com').replace(/\/+$/, '');
     return base + path;
   }
 
   function bridgeOrigin() {
-    const base = (localStorage.getItem('jd_api_base') || 'http://192.168.0.101:9090').replace(/\/+$/, '');
+    const base = (localStorage.getItem('jd_api_base') || 'https://contacted-read-chapters-seven.trycloudflare.com').replace(/\/+$/, '');
     return base || location.origin;
   }
 
@@ -1441,7 +1441,7 @@
     } catch (error) {
       if (seq !== jdQuerySeq) return;
       jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
-      toast('无法连接本地京东查询服务，请检查设置里的本地服务地址', 'error');
+      toast('无法连接京东查询服务，请检查设置里的服务地址', 'error');
     }
   }
 
@@ -1683,8 +1683,8 @@
       <textarea id="jdJdlCookie" rows="3" placeholder="粘贴 jdservice.jdl.com 请求头中的完整 Cookie">${escapeHtml(jdlCookie)}</textarea>
       <label class="field-label" for="jdBarPrinterPath">条码打印软件路径（可选）</label>
       <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
-      <label class="field-label" for="jdApiBase">本地服务地址（可选）</label>
-      <input class="search-input" id="jdApiBase" value="${escapeHtml(apiBase)}" placeholder="例如 http://127.0.0.1:9090 或 http://192.168.0.101:9090">
+      <label class="field-label" for="jdApiBase">服务地址（可选）</label>
+      <input class="search-input" id="jdApiBase" value="${escapeHtml(apiBase)}" placeholder="例如公网隧道地址或 http://127.0.0.1:9090">
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
         <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
