@@ -1285,7 +1285,14 @@
       });
       if (currentScan.__index >= 0) {
         state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
+      } else {
+        const saved = { ...currentScan };
+        delete saved.__index;
+        state.parcels.push(saved);
+        currentScan.__index = state.parcels.length - 1;
       }
+      saveState();
+      renderParcels();
     }
     renderScan();
     const lookupKey = (data && (data.performingOrderNo || data.merchantOrderNo || data.serviceBillNo || data.afsServiceBillNo || data.serviceOrderNo)) || '';
@@ -1327,6 +1334,8 @@
         if (currentScan.jdRepair) currentScan.jdRepair.partBarcode = data.partBarcode;
         if (currentScan.__index >= 0) {
           state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
+          saveState();
+          renderParcels();
         }
       }
       renderScan();
