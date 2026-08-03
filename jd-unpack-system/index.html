@@ -1950,7 +1950,7 @@
     document.getElementById('anomalyTbody').innerHTML = list.length
       ? list.map((a) => `
         <tr>
-          <td>${escapeHtml(a.orderNo || a.tracking)}</td>
+          <td>${escapeHtml(a.orderNo || '--')}</td>
           <td>${escapeHtml(a.tracking)}</td>
           <td>${escapeHtml(a.type)}</td>
           <td><span class="status ${a.severity === '高' ? 'status-anomaly' : 'status-pending'}">${escapeHtml(a.severity)}</span></td>
