@@ -1292,6 +1292,10 @@
       fetchPartBarcode(lookupKey, code, seq);
     } else if (data && data.ok && data.found && !data.partBarcode && !lookupKey) {
       toast('未获取到履约单号，无法查询备件条码', 'error');
+      maybeRegisterAutoAnomaly(data);
+    }
+    if (data && data.ok && data.found && data.startSuccess === false) {
+      maybeRegisterAutoAnomaly(data);
     }
   }
 
@@ -1300,6 +1304,7 @@
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     if (!jdlToken && !jdlCookie) {
       toast('请先配置京东物流 Token 或 Cookie', 'error');
+      maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
       return;
     }
     try {
@@ -1312,6 +1317,7 @@
       if (seq !== jdQuerySeq || !data || !data.ok) return;
       if (!data.partBarcode) {
         toast(data.error || '未查询到备件条码，请确认已执行展翅自动获取', 'error');
+        maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
         return;
       }
       if (jdRepairResult) jdRepairResult.partBarcode = data.partBarcode;
@@ -1326,6 +1332,58 @@
     } catch (error) {
       toast('备件条码查询失败：' + (error.message || '无法连接服务'), 'error');
     }
+  }
+
+  function maybeRegisterAutoAnomaly(data) {
+    if (!data || !data.tracking) return false;
+    const tracking = String(data.tracking).trim();
+    if (!tracking) return false;
+
+    const missingBarcode = !data.partBarcode;
+    const startFailed = data.startSuccess === false;
+    if (!missingBarcode && !startFailed) return false;
+
+    const reasons = [];
+    const startStep = Array.isArray(data.steps) ? data.steps.find((s) => s.name === 'start') : null;
+    const startError = String((startStep && startStep.error) || data.error || '').toLowerCase();
+    const stateText = String(data.detail && data.detail.repairCommitInfoDto && data.detail.repairCommitInfoDto.serviceState || '').toLowerCase();
+    const waiting = startFailed && (
+      startError.includes('待接单') ||
+      startError.includes('待收货') ||
+      startError.includes('待收件') ||
+      stateText.includes('wait_arrive') ||
+      stateText.includes('wait_receive') ||
+      stateText.includes('receive')
+    );
+    if (missingBarcode) reasons.push('备件条码未生成');
+    if (waiting) reasons.push('确认接机按钮仍处于待接单状态');
+    else if (startFailed) reasons.push('确认接机/开始接机未完成');
+
+    const type = missingBarcode ? '备件条码缺失' : '待接单';
+    const existing = state.anomalies.some(
+      (a) =>
+        a.tracking === tracking &&
+        a.type === type &&
+        a.status === 'pending'
+    );
+    if (existing) return false;
+
+    state.anomalies.push({
+      id: `AX${dateNum()}${Date.now().toString().slice(-4)}`,
+      parcelId: currentScan && currentScan.tracking === tracking ? currentScan.id : '',
+      tracking,
+      type,
+      severity: '高',
+      status: 'pending',
+      description: reasons.join('，'),
+      createdAt: new Date().toISOString(),
+      handler: state.settings.operator,
+      resolvedAt: null
+    });
+    saveState();
+    renderAnomalies();
+    toast(`已挂入异常处理：${tracking}`, 'error');
+    return true;
   }
 
   function startJdPolling(code, seq) {
