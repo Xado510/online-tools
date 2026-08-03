@@ -2482,6 +2482,7 @@
   });
   if (applyAuthGate()) {
     refreshSharedState();
+    setInterval(refreshSharedState, 10000);
   }
 
   hydrateIcons();
