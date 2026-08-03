@@ -899,7 +899,10 @@
               <h2 class="panel-title">异常记录</h2>
               <p class="panel-sub">少件、破损、错发等拆包异常</p>
             </div>
-            <button class="link-btn" id="anomalyToggle" type="button">只看待处理</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="link-btn" id="anomalyToggle" type="button">只看待处理</button>
+              <button class="btn btn-danger" id="clearAnomaliesBtn" type="button">清空异常</button>
+            </div>
           </header>
           <div class="table-wrap">
             <table>
@@ -1973,6 +1976,18 @@
     toast(`异常已处理：${tracking}`);
   }
 
+  function clearAnomalies() {
+    if (!state.anomalies.length) {
+      toast('异常记录已为空');
+      return;
+    }
+    if (!confirm('确定清空全部异常记录？')) return;
+    state.anomalies = [];
+    saveState();
+    renderAll();
+    toast('异常记录已清空');
+  }
+
   function renderAll() {
     renderDashboard();
     renderParcels();
@@ -2156,6 +2171,7 @@
     onlyPendingAnomalies = !onlyPendingAnomalies;
     renderAnomalies();
   });
+  document.getElementById('clearAnomaliesBtn').addEventListener('click', clearAnomalies);
   document.getElementById('anomalyTbody').addEventListener('click', (event) => {
     const button = event.target.closest('[data-resolve]');
     if (button) resolveAnomaly(button.dataset.resolve);
