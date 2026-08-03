@@ -1445,13 +1445,58 @@
     }
   }
 
+  async function queryJdRepairAutoStart(code) {
+    const seq = ++jdQuerySeq;
+    const cookie = localStorage.getItem('jd_cookie') || '';
+    const userId = localStorage.getItem('jd_userId') || '';
+    const appCode = localStorage.getItem('jd_appCode') || '';
+    const shopCode = localStorage.getItem('jd_shopCode') || '';
+    const jdlToken = localStorage.getItem('jd_jdl_token') || '';
+    const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
+    jdRepairResult = { loading: true, tracking: code };
+    try {
+      const response = await fetch(apiUrl('/api/repair/auto-start'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken, jdlCookie })
+      });
+      const data = await response.json();
+      if (seq !== jdQuerySeq) return;
+      if (data && data.ok === false && /notlogin|未登录/i.test(String(data.error || ''))) {
+        jdRepairResult = {
+          ok: false,
+          waiting: true,
+          error: '未登录：请在设置中复制抓取命令，并在京东维修页面控制台执行',
+          tracking: code
+        };
+        toast('未登录：请在设置中复制抓取命令，并在京东维修页面控制台执行', 'error');
+        startJdPolling(code, seq);
+        return;
+      }
+      applyJdRepairData(data, code, seq);
+      if (data && data.startSuccess) {
+        toast('已自动开始接机并同步备件条码');
+      } else if (data && data.error) {
+        toast(data.error, 'error');
+      }
+    } catch (error) {
+      if (seq !== jdQuerySeq) return;
+      jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
+      toast('无法连接京东查询服务，请检查设置里的服务地址', 'error');
+    }
+  }
+
   function lookupTracking(code) {
     const normalized = code.trim();
     if (!normalized) {
       toast('请输入或扫描运单号', 'error');
       return;
     }
-    queryJdRepair(normalized);
+    if (localStorage.getItem('jd_auto_start') !== '0') {
+      queryJdRepairAutoStart(normalized);
+    } else {
+      queryJdRepair(normalized);
+    }
 
     const existingIndex = state.parcels.findIndex((p) => p.tracking.toLowerCase() === normalized.toLowerCase());
     if (existingIndex >= 0) {
@@ -1681,6 +1726,10 @@
       <input class="search-input" id="jdJdlToken" value="${escapeHtml(jdlToken)}" placeholder="粘贴 jdservice.jdl.com 的 pin / X-Access-Token">
       <label class="field-label" for="jdJdlCookie">京东物流 Cookie（可选）</label>
       <textarea id="jdJdlCookie" rows="3" placeholder="粘贴 jdservice.jdl.com 请求头中的完整 Cookie">${escapeHtml(jdlCookie)}</textarea>
+      <label class="field-label" for="jdAutoStart" style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <input type="checkbox" id="jdAutoStart" ${localStorage.getItem('jd_auto_start') !== '0' ? 'checked' : ''}>
+        查询后自动开始接机并同步备件条码
+      </label>
       <label class="field-label" for="jdBarPrinterPath">条码打印软件路径（可选）</label>
       <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
       <label class="field-label" for="jdApiBase">服务地址（可选）</label>
@@ -1725,6 +1774,7 @@
     localStorage.setItem('jd_cookie', document.getElementById('jdCookie').value.trim());
     localStorage.setItem('jd_jdl_token', document.getElementById('jdJdlToken').value.trim());
     localStorage.setItem('jd_jdl_cookie', document.getElementById('jdJdlCookie').value.trim());
+    localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
     localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
     localStorage.setItem('jd_api_base', document.getElementById('jdApiBase').value.trim());
     closeModal();
