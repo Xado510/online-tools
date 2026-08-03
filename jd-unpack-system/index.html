@@ -235,6 +235,28 @@
     font-size: 11px;
     letter-spacing: .02em;
   }
+  .top-robot {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+  .top-robot svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .user-badge.top-user-badge {
+    min-width: 36px;
+    height: 36px;
+    width: 36px;
+    padding: 3px;
+    border-radius: 50%;
+    background: #fff1f0;
+    border: 1px solid #f4c7c4;
+  }
 
   .content { max-width: 1440px; margin: 0 auto; padding: 20px 24px 48px; }
   .view { display: none; }
@@ -810,8 +832,28 @@
       </div>
       <div class="top-actions">
         <span class="warehouse-chip"><span data-icon="truck"></span>北京保险服务中心</span>
-        <button class="btn" id="jdSettingsBtn" type="button"><span data-icon="settings"></span><span>设置</span></button>
-        <div class="user-badge" title="admin">admin</div>
+        <button class="btn" id="jdSettingsBtn" type="button" title="设置" aria-label="设置">
+          <span class="top-robot">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <rect x="6" y="8" width="28" height="26" rx="6" fill="#e1251b"/>
+              <rect x="10" y="12" width="20" height="18" rx="5" fill="#fff"/>
+              <circle cx="15" cy="20" r="3" fill="#1f2329"/>
+              <circle cx="25" cy="20" r="3" fill="#1f2329"/>
+              <path d="M14 26 Q20 30 26 26" fill="none" stroke="#1f2329" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+        </button>
+        <div class="user-badge top-user-badge" title="admin">
+          <span class="top-robot">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <rect x="6" y="8" width="28" height="26" rx="6" fill="#e1251b"/>
+              <rect x="10" y="12" width="20" height="18" rx="5" fill="#fff"/>
+              <circle cx="15" cy="20" r="3" fill="#1f2329"/>
+              <circle cx="25" cy="20" r="3" fill="#1f2329"/>
+              <path d="M14 26 Q20 30 26 26" fill="none" stroke="#1f2329" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+        </div>
       </div>
     </header>
 
