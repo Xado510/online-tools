@@ -1107,13 +1107,21 @@
   }
 
   function applyAuthGate() {
-    const authed = localStorage.getItem(AUTH_KEY) === '1';
+    const hasConfig = Boolean(
+      localStorage.getItem('jd_api_base') ||
+      localStorage.getItem('jd_cookie') ||
+      localStorage.getItem('jd_jdl_cookie') ||
+      localStorage.getItem('jd_jdl_token')
+    );
+    const authed = localStorage.getItem(AUTH_KEY) === '1' ||
+      (hasConfig && localStorage.getItem('jd_logged_out') !== '1');
     document.body.classList.toggle('auth-locked', !authed);
     document.getElementById('loginOverlay').classList.toggle('hidden', authed);
   }
 
   function logout() {
     localStorage.removeItem(AUTH_KEY);
+    localStorage.setItem('jd_logged_out', '1');
     applyAuthGate();
   }
 
@@ -2274,6 +2282,7 @@
     const password = document.getElementById('loginPassword').value;
     if (username === AUTH_USER && password === AUTH_PASS) {
       localStorage.setItem(AUTH_KEY, '1');
+      localStorage.removeItem('jd_logged_out');
       document.getElementById('loginPassword').value = '';
       document.getElementById('loginError').textContent = '';
       applyAuthGate();
