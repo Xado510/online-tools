@@ -36,6 +36,20 @@
     font-size: 14px;
     line-height: 1.5;
   }
+  body::after {
+    content: "正道成功 · 客户为先 · 诚信 · 协作 · 感恩 · 拼搏 · 担当";
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 6px;
+    z-index: 1;
+    text-align: center;
+    font-size: 13px;
+    letter-spacing: .28em;
+    color: rgba(31, 35, 41, .12);
+    pointer-events: none;
+    white-space: nowrap;
+  }
   button, input, select, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
   .hidden { display: none !important; }
@@ -660,6 +674,7 @@
     .warehouse-chip { display: none; }
   }
   @media (max-width: 560px) {
+    body::after { font-size: 10px; letter-spacing: .12em; bottom: 4px; }
     .top-actions .btn span:last-child { display: none; }
     .top-actions .btn { padding: 0 10px; }
     .stat-grid, .anomaly-stat-grid { grid-template-columns: 1fr; }
