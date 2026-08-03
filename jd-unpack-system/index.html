@@ -1340,7 +1340,7 @@
     if (!tracking) return false;
 
     const missingBarcode = !data.partBarcode;
-    const startFailed = data.startSuccess === false;
+    const startFailed = data.startSuccess === false && !data.encryptionRequired;
     if (!missingBarcode && !startFailed) return false;
 
     const reasons = [];
@@ -1452,6 +1452,59 @@
     ].join('\n');
   }
 
+  function buildAutoStartSnippet() {
+    const bridge = bridgeOrigin();
+    return [
+      '(async () => {',
+      '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const expressNo = prompt("输入京东快递单号");',
+      '  if (!expressNo) return;',
+      '  const userInfo = localStorage.getItem("userInfo") || "";',
+      '  const userId = (() => { try { return userInfo ? encodeURIComponent(JSON.parse(userInfo)) : ""; } catch (e) { return encodeURIComponent(userInfo); } })();',
+      '  const headers = {"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":localStorage.getItem("systemCode") || ""};',
+      '  const findKey = (obj, key) => { if (!obj) return null; if (Array.isArray(obj)) { for (const item of obj) { const v = findKey(item, key); if (v !== null && v !== undefined && v !== "") return v; } return null; } if (typeof obj === "object") { if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key]; for (const value of Object.values(obj)) { const v = findKey(value, key); if (v !== null && v !== undefined && v !== "") return v; } } return null; };',
+      '  let shopCode = "";',
+      '  let facilitatorCode = "";',
+      '  let shopName = "";',
+      '  const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers,body:"{}"}).then(r => r.json());',
+      '  if (shops && shops.success && shops.values && shops.values[0]) { shopCode = shops.values[0].code || ""; facilitatorCode = shops.values[0].facilitatorCode || ""; shopName = shops.values[0].shopName || shops.values[0].name || ""; }',
+      '  const query = {expressNo: expressNo.toUpperCase()};',
+      '  if (shopCode) query.shopCode = shopCode;',
+      '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers,body:JSON.stringify({pageIndex:1,pageSize:10,query})}).then(r => r.json());',
+      '  if (!list || !list.success || !list.values || !list.values.length) { alert("京东查询失败：" + ((list && (list.msg || list.error || list.showMsg)) || "NotLogin")); return; }',
+      '  const row = list.values[0];',
+      '  const detail = await fetch("https://baozang-out.jd.com/serviceOrder/serviceOrderDetail", {method:"POST",credentials:"include",headers,body:JSON.stringify({serviceOrderNo:row.serviceOrderNo,facilitatorCode:row.facilitatorCode || facilitatorCode,shopCode:row.shopCode || shopCode,performingOrderState:row.serviceState || row.performingOrderState})}).then(r => r.json());',
+      '  if (!detail || !detail.success) { alert("详情查询失败：" + ((detail && (detail.msg || detail.error || detail.showMsg)) || "NotLogin")); return; }',
+      '  const value = detail.value || {};',
+      '  const commit = value.repairCommitInfoDto || {};',
+      '  const receive = value.receiveMaintainOrderInfoDto || {};',
+      '  const serviceState = commit.serviceState || "";',
+      '  const waitStates = ["EXPRESS_INFO_FINISH","WAIT_VISIT","WAIT_ARRIVE_STORE","WAIT_RECEIVE","TO_BE_RECEIVED"];',
+      '  let startSuccess = false;',
+      '  let startMsg = "";',
+      '  if (!waitStates.includes(serviceState)) { startSuccess = true; startMsg = "该单已接机"; } else {',
+      '    const orderInfo = {};',
+      '    ["storePhone","engineerIndex","engineerJdPin","engineerName","engineerPhone","maintainType","modifyCallCause","subscribeTime","subscribeTimeType","returnAddress","warehouseCode","needReturnGoods"].forEach(k => { const v = findKey(value, k); if (v !== null && v !== undefined && v !== "") orderInfo[k] = String(v); });',
+      '    if (!orderInfo.warehouseCode) { const wh = await fetch("https://baozang-out.jd.com/warehouse/queryByFacilitatorAndShopCode", {method:"POST",credentials:"include",headers,body:JSON.stringify({shopCode:commit.shopCode,busStatus:"1"})}).then(r => r.json()); if (wh && wh.values && wh.values[0]) orderInfo.warehouseCode = wh.values[0].warehouseCode; }',
+      '    if (orderInfo.warehouseCode && !orderInfo.returnAddress) { const whd = await fetch("https://baozang-out.jd.com/warehouse/queryByWarehouseCode/" + orderInfo.warehouseCode, {credentials:"include"}).then(r => r.json()); const w = (whd && whd.value) || {}; orderInfo.returnAddress = [w.provinceName,w.cityName,w.countyName,w.townName,w.addressDetail].filter(Boolean).join("/"); }',
+      '    const keyResp = await fetch("/aks/getSMKey", {credentials:"include"}).then(r => r.json());',
+      '    if (!keyResp || !keyResp.success) { alert("获取加密密钥失败：" + ((keyResp && (keyResp.msg || keyResp.error)) || "")); return; }',
+      '    const payload = {serviceId:commit.facilitatorCode,shopId:commit.shopCode,serviceOrderNo:commit.serviceOrderNo,serviceType:commit.serviceTypeEnum,...orderInfo};',
+      '    const encrypted = window.SummerCryptico.encryptData(keyResp.result, JSON.stringify(payload));',
+      '    const res = await fetch("/serviceOrder/facilitatorAcceptExpress", {method:"POST",credentials:"include",headers:{"Content-Type":"application/json",userId:userId},body:encrypted}).then(r => r.json());',
+      '    startSuccess = !!res.success; startMsg = res.success ? "已自动接机" : (res.showMsg || res.msg || res.error || "接机失败");',
+      '  }',
+      '  const performingOrderNo = commit.performingOrderNo || row.performingOrderNo || row.performingNo;',
+      '  const expressList = findKey(receive, "expressInfoDtoList") || [];',
+      '  const expressNoValue = row.expressNo || receive.expressNo || (expressList[0] && expressList[0].expressNo) || expressNo.toUpperCase();',
+      '  const perfMap = {"01":"维修","REPAIR":"维修","02":"换新","CHANGE_NEW":"换新","05":"补贴","SUBSIDY":"补贴","08":"退货","SALES_RETURN":"退货","10":"增值服务","ADD_VALUE":"增值服务","11":"服务中台","SERVICE_PLATFORM_THIRD_PART_RIGHT":"服务中台"};',
+      '  const result = {ok:true,found:true,tracking:expressNo.toUpperCase(),performingOrderNo,serviceOrderNo:row.serviceOrderNo || commit.serviceOrderNo,category:commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory,expressNo:expressNoValue,productName:commit.outerMainSkuName || commit.outerSkuName || row.outerMainSkuName || row.outerSkuName,sku:commit.outerSku || row.outerSku,brand:commit.outerMainSkuBrand,model:commit.mainSkuModel,performingModel:perfMap[commit.performanceTypeEnum] || commit.leafPerformingModelName || commit.performanceTypeEnum || "未知状态",shopName,startSuccess,detail:value};',
+      '  await fetch(bridge + "/api/repair/import", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tracking:expressNo.toUpperCase(),result})});',
+      '  alert(startMsg + "；已发送到拆包系统");',
+      '})();'
+    ].join('\n');
+  }
+
   function buildJdlTokenSnippet() {
     const bridge = bridgeOrigin();
     return [
@@ -1532,7 +1585,9 @@
         return;
       }
       applyJdRepairData(data, code, seq);
-      if (data && data.startSuccess) {
+      if (data && data.encryptionRequired) {
+        toast('请在京东维修页面执行自动接机命令，再回来查询', 'error');
+      } else if (data && data.startSuccess) {
         const startStep = Array.isArray(data.steps) ? data.steps.find((s) => s.name === 'start') : null;
         if (startStep && startStep.skipped) {
           toast('该单已接机，直接同步备件条码');
@@ -1800,6 +1855,7 @@
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
         <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
+        <button class="btn" id="jdAutoStartSnippet" type="button">自动接机</button>
         <button class="btn" id="jdAutoPinCmd" type="button">展翅自动获取</button>
         <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
@@ -1811,6 +1867,14 @@
       try {
         await navigator.clipboard.writeText(buildJdPageSnippet());
         toast('京东页面抓取命令已复制');
+      } catch (err) {
+        toast('复制失败，请手动复制', 'error');
+      }
+    });
+    document.getElementById('jdAutoStartSnippet').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(buildAutoStartSnippet());
+        toast('自动接机命令已复制');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
