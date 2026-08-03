@@ -1977,15 +1977,16 @@
   }
 
   function clearAnomalies() {
-    if (!state.anomalies.length) {
-      toast('异常记录已为空');
+    const resolved = state.anomalies.filter((a) => a.status === 'resolved');
+    if (!resolved.length) {
+      toast('没有已处理的异常记录');
       return;
     }
-    if (!confirm('确定清空全部异常记录？')) return;
-    state.anomalies = [];
+    if (!confirm(`确定清空 ${resolved.length} 条已处理异常？`)) return;
+    state.anomalies = state.anomalies.filter((a) => a.status !== 'resolved');
     saveState();
     renderAll();
-    toast('异常记录已清空');
+    toast('已处理异常已清空');
   }
 
   function renderAll() {
