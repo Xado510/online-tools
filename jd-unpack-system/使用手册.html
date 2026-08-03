@@ -150,7 +150,98 @@
     </div>
   </div>
 
-  <h2>四、扫码拆包</h2>
+  <h2>四、完整配置教程</h2>
+  <div class="box ok">
+    <h3>4.1 首次配置流程</h3>
+    <div class="flow">
+      <div class="flow-step"><b>1. 启动服务</b>确认桥接服务已运行</div>
+      <div class="flow-step"><b>2. 打开系统</b>访问线上页面或本地页面</div>
+      <div class="flow-step"><b>3. 打开设置</b>点击右上角星匣机器人</div>
+      <div class="flow-step"><b>4. 配置服务地址</b>填写桥接服务地址</div>
+      <div class="flow-step"><b>5. 配置京东 Cookie</b>执行“宝藏自动获取”</div>
+      <div class="flow-step"><b>6. 配置展翅 Cookie</b>执行“展翅自动获取”</div>
+      <div class="flow-step"><b>7. 保存并测试</b>输入快递单号查询</div>
+    </div>
+  </div>
+
+  <h3>4.2 启动桥接服务</h3>
+  <ol>
+    <li>打开命令提示符或 PowerShell。</li>
+    <li>进入系统目录：<code>C:\Users\zx173\Documents\New project\outputs\jd-unpack-system</code></li>
+    <li>执行：<code>python jd_repair_bridge.py</code></li>
+    <li>看到 <code>JD repair bridge ready at http://127.0.0.1:9090</code> 表示启动成功。</li>
+    <li>已验证的地址：<code>http://127.0.0.1:9090</code>。</li>
+  </ol>
+  <div class="info box">
+    <p>本机已配置开机自启动，正常情况下不需要每次手动启动。若服务未运行，其他电脑查询会失败。</p>
+  </div>
+
+  <h3>4.3 配置服务地址</h3>
+  <ol>
+    <li>打开系统，点击右上角星匣机器人进入设置。</li>
+    <li>找到“服务地址（可选）”。</li>
+    <li>本机使用：<code>http://127.0.0.1:9090</code></li>
+    <li>局域网其他电脑使用：<code>http://192.168.0.101:9090</code></li>
+    <li>线上页面默认使用公网隧道地址，不需要填写也能连接主电脑。</li>
+    <li>点击“保存”。</li>
+  </ol>
+
+  <h3>4.4 配置京东维修 Cookie</h3>
+  <h4>推荐方式：宝藏自动获取</h4>
+  <ol>
+    <li>在电脑浏览器登录：<code>https://digital-ins.jd.com/repair</code></li>
+    <li>打开拆包系统“设置”。</li>
+    <li>点击“宝藏自动获取”复制命令。</li>
+    <li>回到京东维修页面，按 <code>F12</code> 打开控制台。</li>
+    <li>如果提示 <code>allow pasting</code>，先输入 <code>allow pasting</code> 再回车。</li>
+    <li>粘贴命令并回车，等待提示“已发送到拆包系统”。</li>
+  </ol>
+  <h4>手动方式：复制 Cookie</h4>
+  <ol>
+    <li>登录京东维修页面，按 <code>F12</code> 打开 Network。</li>
+    <li>在页面执行一次查询。</li>
+    <li>找到 <code>queryFacilitatorOrderByStateAndCode</code> 请求。</li>
+    <li>复制 Request Headers 中 <code>Cookie:</code> 后的完整内容。</li>
+    <li>粘贴到拆包系统“设置”的“Cookie”输入框，点击保存。</li>
+  </ol>
+
+  <h3>4.5 配置展翅备件条码</h3>
+  <h4>推荐方式：展翅自动获取</h4>
+  <ol>
+    <li>在电脑浏览器登录：<code>https://jdservice.jdl.com/spc/repair/servicebilllist</code></li>
+    <li>打开拆包系统“设置”。</li>
+    <li>点击“展翅自动获取”复制命令。</li>
+    <li>回到展翅页面，按 <code>F12</code> 打开控制台。</li>
+    <li>粘贴命令并回车，等待提示“已自动配置京东物流 Token”。</li>
+  </ol>
+  <h4>手动方式：配置京东物流 Cookie</h4>
+  <ol>
+    <li>登录展翅页面，按 <code>F12</code> 打开 Network。</li>
+    <li>点击一次“查询”，找到 <code>spcapi/mcsServiceBill/page</code> 请求。</li>
+    <li>复制 Request Headers 中 <code>Cookie:</code> 后的完整内容。</li>
+    <li>粘贴到拆包系统“设置”的“京东物流 Cookie（可选）”。</li>
+    <li>点击保存。</li>
+  </ol>
+
+  <h3>4.6 配置条码打印</h3>
+  <ol>
+    <li>在“设置”中找到“条码打印软件路径（可选）”。</li>
+    <li>默认路径为：<code>D:\we\data\xwechat_files\wxid_4m1kqcgnvn2v22_d9be\msg\file\2026-07\条码打印软件\条码打印软件\BarPrinter.exe</code></li>
+    <li>如果软件安装在其他位置，填写实际完整路径。</li>
+    <li>点击保存。</li>
+  </ol>
+
+  <h3>4.7 保存并验证配置</h3>
+  <ol>
+    <li>点击“保存”。</li>
+    <li>进入“扫码拆包”。</li>
+    <li>输入快递单号，例如 <code>JDX057168922378</code>。</li>
+    <li>点击“查询”。</li>
+    <li>确认页面显示履约单号、履约模式、备件条码。</li>
+    <li>切到“历史记录”确认包裹已同步。</li>
+  </ol>
+
+  <h2>五、扫码拆包</h2>
   <h3>4.1 查询快递单</h3>
   <ol>
     <li>进入“扫码拆包”。</li>
@@ -184,7 +275,7 @@
     <p>复制结果每行一个条码，可直接粘贴到展翅系统。</p>
   </div>
 
-  <h2>五、历史记录</h2>
+  <h2>六、历史记录</h2>
   <ul>
     <li>查询成功后，包裹信息会自动写入历史记录。</li>
     <li>历史记录按时间倒序显示。</li>
@@ -194,7 +285,7 @@
     <li>“清空历史”会清空全部历史记录，请谨慎操作。</li>
   </ul>
 
-  <h2>六、异常处理</h2>
+  <h2>七、异常处理</h2>
   <div class="warn box">
     <p>以下情况会自动挂入异常处理：</p>
     <ul>
@@ -207,7 +298,7 @@
     <p>“清空异常”只能清空已处理记录，未处理记录不会被清除。</p>
   </div>
 
-  <h2>七、设置说明</h2>
+  <h2>八、设置说明</h2>
   <table>
     <thead>
       <tr><th>设置项</th><th>用途</th><th>建议</th></tr>
@@ -224,7 +315,7 @@
     </tbody>
   </table>
 
-  <h2>八、条码打印</h2>
+  <h2>九、条码打印</h2>
   <ol>
     <li>确认条码打印软件路径已配置。</li>
     <li>查询包裹并确认已有履约单号和备件条码。</li>
@@ -232,7 +323,7 @@
     <li>打印内容：履约单号前面带两个空格，备件条码放在下一行。</li>
   </ol>
 
-  <h2>九、多电脑与公网访问</h2>
+  <h2>十、多电脑与公网访问</h2>
   <div class="info box">
     <p>线上地址：<code>https://xado510.github.io/online-tools/jd-unpack-system/</code></p>
     <p>网页本身可在不同电脑、手机、不同网络打开。</p>
@@ -240,7 +331,7 @@
     <p>条码打印依赖安装打印软件和打印机的电脑，云服务器无法直接打印。</p>
   </div>
 
-  <h2>十、常见问题</h2>
+  <h2>十一、常见问题</h2>
   <table>
     <thead><tr><th>问题</th><th>处理方式</th></tr></thead>
     <tbody>
@@ -253,7 +344,7 @@
     </tbody>
   </table>
 
-  <h2>十一、安全与免责声明</h2>
+  <h2>十二、安全与免责声明</h2>
   <div class="warn box">
     <p>请勿把账号、Cookie、Token 发给无关人员。</p>
     <p>系统数据以京东、展翅及物流官方页面为准。</p>
