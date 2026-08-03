@@ -1541,6 +1541,7 @@
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     jdRepairResult = { loading: true, tracking: code };
     try {
+      toast('正在自动接机并等待备件条码生成，请稍候', '');
       const response = await fetch(apiUrl('/api/repair/auto-start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
