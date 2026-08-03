@@ -62,21 +62,64 @@
     align-items: center;
     justify-content: center;
     padding: 20px;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 20% 18%, rgba(225, 37, 27, .08), transparent 32%),
+      linear-gradient(145deg, #f7f8fa 0%, #ffffff 56%, #f1f3f6 100%);
   }
   .login-overlay.hidden { display: none; }
   .auth-locked .layout { display: none; }
   .login-card {
     width: 100%;
-    max-width: 380px;
-    padding: 26px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    max-width: 420px;
+    padding: 24px 30px 30px;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid rgba(227, 231, 236, .9);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 18px 48px rgba(16, 24, 40, .10);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
-  .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
-  .login-title { font-size: 18px; font-weight: 800; }
+  .login-mascot {
+    width: 170px;
+    height: 126px;
+    margin: -6px auto 6px;
+    position: relative;
+  }
+  .login-mascot svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    animation: mascotFloat 3.6s ease-in-out infinite;
+  }
+  .mascot-shadow {
+    width: 86px;
+    height: 14px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background: rgba(31, 35, 41, .10);
+    filter: blur(3px);
+    animation: mascotShadow 3.6s ease-in-out infinite;
+  }
+  .mascot-eye {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: mascotBlink 5.2s ease-in-out infinite;
+  }
+  @keyframes mascotFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
+  }
+  @keyframes mascotShadow {
+    0%, 100% { transform: scaleX(1); opacity: .75; }
+    50% { transform: scaleX(.82); opacity: .45; }
+  }
+  @keyframes mascotBlink {
+    0%, 92%, 100% { transform: scaleY(1); }
+    95% { transform: scaleY(.08); }
+  }
+  .login-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 20px; }
+  .login-title { font-size: 19px; font-weight: 800; }
   .login-sub { margin-top: 2px; font-size: 12px; color: var(--text-3); }
   .login-field { margin-top: 14px; }
   .login-field label { display: block; margin-bottom: 6px; color: var(--text-2); font-size: 12px; font-weight: 600; }
@@ -697,6 +740,24 @@
 <body>
 <div class="login-overlay" id="loginOverlay">
   <form class="login-card" id="loginForm">
+    <div class="login-mascot" id="loginMascot">
+      <svg viewBox="0 0 170 126" role="img" aria-label="星匣角色">
+        <path d="M85 8 L94 24 L76 24 Z" fill="#c8161d"/>
+        <circle cx="85" cy="10" r="7" fill="#c8161d"/>
+        <rect x="41" y="30" width="88" height="72" rx="18" fill="#e1251b"/>
+        <rect x="35" y="52" width="12" height="28" rx="6" fill="#c8161d"/>
+        <rect x="123" y="52" width="12" height="28" rx="6" fill="#c8161d"/>
+        <rect x="51" y="38" width="68" height="56" rx="14" fill="#fff"/>
+        <circle cx="67" cy="56" r="9" class="mascot-eye" fill="#fff" stroke="#1f2329" stroke-width="2"/>
+        <circle cx="103" cy="56" r="9" class="mascot-eye" fill="#fff" stroke="#1f2329" stroke-width="2"/>
+        <circle id="mascotPupilL" cx="69" cy="57" r="4" fill="#1f2329"/>
+        <circle id="mascotPupilR" cx="105" cy="57" r="4" fill="#1f2329"/>
+        <path d="M70 84 Q85 94 100 84" fill="none" stroke="#1f2329" stroke-width="3" stroke-linecap="round"/>
+        <rect x="59" y="94" width="14" height="12" rx="6" fill="#e1251b"/>
+        <rect x="97" y="94" width="14" height="12" rx="6" fill="#e1251b"/>
+      </svg>
+      <div class="mascot-shadow"></div>
+    </div>
     <div class="login-brand">
       <div class="brand-mark">BJBX</div>
       <div>
@@ -2219,6 +2280,19 @@
     } else {
       document.getElementById('loginError').textContent = '账号或密码错误';
     }
+  });
+  document.getElementById('loginOverlay').addEventListener('mousemove', (event) => {
+    const rect = document.getElementById('loginOverlay').getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width - .5;
+    const y = (event.clientY - rect.top) / rect.height - .5;
+    const shiftX = Math.max(-4, Math.min(4, x * 9));
+    const shiftY = Math.max(-3, Math.min(3, y * 6));
+    const leftPupil = document.getElementById('mascotPupilL');
+    const rightPupil = document.getElementById('mascotPupilR');
+    if (leftPupil) leftPupil.setAttribute('cx', 69 + shiftX);
+    if (leftPupil) leftPupil.setAttribute('cy', 57 + shiftY);
+    if (rightPupil) rightPupil.setAttribute('cx', 105 + shiftX);
+    if (rightPupil) rightPupil.setAttribute('cy', 57 + shiftY);
   });
   applyAuthGate();
 
