@@ -1533,7 +1533,12 @@
       }
       applyJdRepairData(data, code, seq);
       if (data && data.startSuccess) {
-        toast('已自动开始接机并同步备件条码');
+        const startStep = Array.isArray(data.steps) ? data.steps.find((s) => s.name === 'start') : null;
+        if (startStep && startStep.skipped) {
+          toast('该单已接机，直接同步备件条码');
+        } else {
+          toast('已自动开始接机并同步备件条码');
+        }
       } else if (data && data.error) {
         toast(data.error, 'error');
       }
