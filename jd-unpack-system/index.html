@@ -1072,6 +1072,7 @@
   const AUTH_USER = 'admin';
   const AUTH_PASS = 'jdl950618618';
   const AUTH_KEY = 'jd_unpack_auth';
+  const LAST_CLEARED_KEY = 'jd_last_cleared_at';
   function getClientId() {
     let id = localStorage.getItem('jd_client_id');
     if (!id) {
@@ -1194,13 +1195,17 @@
     };
   }
 
-  async function pushStateToServer() {
+  async function pushStateToServer(replace = false) {
     try {
+      const clearedAt = replace ? new Date().toISOString() : undefined;
+      if (clearedAt) localStorage.setItem(LAST_CLEARED_KEY, clearedAt);
       await fetch(apiUrl('/api/state'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           account: AUTH_USER,
+          replace,
+          clearedAt,
           state: { parcels: state.parcels || [], anomalies: state.anomalies || [] }
         })
       });
@@ -1214,9 +1219,16 @@
       const response = await fetch(apiUrl(`/api/state?account=${encodeURIComponent(AUTH_USER)}`));
       const data = await response.json();
       const remote = (data && data.state) || { parcels: [], anomalies: [] };
-      state = mergeSharedState(state, remote);
+      const remoteClearedAt = remote.clearedAt || '';
+      const lastClearedAt = localStorage.getItem(LAST_CLEARED_KEY) || '';
+      if (remoteClearedAt && (!lastClearedAt || remoteClearedAt >= lastClearedAt)) {
+        state = mergeSharedState(seedState(), remote);
+        localStorage.setItem(LAST_CLEARED_KEY, remoteClearedAt);
+      } else {
+        state = mergeSharedState(state, remote);
+      }
       saveLocalState();
-      pushStateToServer();
+      pushStateToServer(false);
       renderAll();
     } catch (err) {
       // 未连接后端时继续使用本地数据。
@@ -2213,7 +2225,8 @@
     if (!anomaly) return;
     const tracking = anomaly.tracking;
     state.anomalies = state.anomalies.filter((a) => a.id !== id);
-    saveState();
+    saveLocalState();
+    pushStateToServer(true);
     renderAll();
     toast(`异常已处理：${tracking}`);
   }
@@ -2226,7 +2239,8 @@
     }
     if (!confirm(`确定清空 ${resolved.length} 条已处理异常？`)) return;
     state.anomalies = state.anomalies.filter((a) => a.status !== 'resolved');
-    saveState();
+    saveLocalState();
+    pushStateToServer(true);
     renderAll();
     toast('已处理异常已清空');
   }
@@ -2250,6 +2264,8 @@
     document.getElementById('parcelStatus').value = 'all';
     document.getElementById('parcelDate').value = '';
     onlyPendingAnomalies = false;
+    saveLocalState();
+    pushStateToServer(true);
     renderAll();
     toast('数据已重置');
   }
@@ -2264,7 +2280,8 @@
     currentScan = null;
     jdQuerySeq += 1;
     jdRepairResult = null;
-    saveState();
+    saveLocalState();
+    pushStateToServer(true);
     renderAll();
     toast('包裹历史已清空');
   }
