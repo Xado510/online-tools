@@ -905,7 +905,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>异常编号</th>
+                  <th>履约单号</th>
                   <th>运单号</th>
                   <th>异常类型</th>
                   <th>严重程度</th>
@@ -1375,6 +1375,7 @@
       id: `AX${dateNum()}${Date.now().toString().slice(-4)}`,
       parcelId: currentScan && currentScan.tracking === tracking ? currentScan.id : '',
       tracking,
+      orderNo: data.performingOrderNo || data.merchantOrderNo || data.serviceOrderNo || '',
       type,
       severity: '高',
       status: 'pending',
@@ -1687,6 +1688,7 @@
         id: `AX${dateNum()}${Date.now().toString().slice(-4)}`,
         parcelId: parcel.id,
         tracking: parcel.tracking,
+        orderNo: parcel.order || currentScan.order || '',
         type,
         severity: condition === '破损' ? '高' : missingCount > 0 ? '高' : '中',
         status: 'pending',
@@ -1948,7 +1950,7 @@
     document.getElementById('anomalyTbody').innerHTML = list.length
       ? list.map((a) => `
         <tr>
-          <td>${escapeHtml(a.id)}</td>
+          <td>${escapeHtml(a.orderNo || a.tracking)}</td>
           <td>${escapeHtml(a.tracking)}</td>
           <td>${escapeHtml(a.type)}</td>
           <td><span class="status ${a.severity === '高' ? 'status-anomaly' : 'status-pending'}">${escapeHtml(a.severity)}</span></td>
@@ -1964,12 +1966,11 @@
   function resolveAnomaly(id) {
     const anomaly = state.anomalies.find((a) => a.id === id);
     if (!anomaly) return;
-    anomaly.status = 'resolved';
-    anomaly.resolvedAt = new Date().toISOString();
-    anomaly.handler = state.settings.operator;
+    const tracking = anomaly.tracking;
+    state.anomalies = state.anomalies.filter((a) => a.id !== id);
     saveState();
     renderAll();
-    toast(`异常已处理：${anomaly.tracking}`);
+    toast(`异常已处理：${tracking}`);
   }
 
   function renderAll() {
