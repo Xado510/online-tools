@@ -135,6 +135,24 @@
   .login-field input:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(225, 37, 27, .08); }
   .login-error { min-height: 20px; margin-top: 8px; color: var(--red); font-size: 12px; }
   .login-card .btn { width: 100%; margin-top: 4px; }
+  .disclaimer-btn {
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    z-index: 60;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, .88);
+    color: var(--text-3);
+    font-size: 12px;
+    box-shadow: var(--shadow-sm);
+  }
+  .disclaimer-btn:hover { color: var(--text); background: var(--surface); }
+  .disclaimer-content { line-height: 1.8; color: var(--text-2); font-size: 13px; }
+  .disclaimer-content h3 { margin: 14px 0 6px; font-size: 14px; color: var(--text); }
+  .disclaimer-content h3:first-child { margin-top: 0; }
 
   .layout { display: flex; min-height: 100vh; }
 
@@ -1033,6 +1051,8 @@
     </div>
   </main>
 </div>
+
+<button class="disclaimer-btn" id="disclaimerBtn" type="button">免责声明</button>
 
 <div class="modal-backdrop" id="modalBackdrop">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -2005,6 +2025,27 @@
     document.getElementById('modalBackdrop').classList.add('active');
   }
 
+  function openDisclaimer() {
+    const body = `
+      <div class="disclaimer-content">
+        <h3>使用说明</h3>
+        <p>本系统仅用于内部拆包作业辅助，不构成京东官方认可、合作或保证。系统展示的信息来源于用户授权登录的京东、展翅及相关物流页面。</p>
+        <h3>数据准确性</h3>
+        <p>系统不保证所有数据实时、完整或绝对准确。实际业务数据请以京东官方页面、展翅系统及物流系统最终返回结果为准。因数据延迟、接口变更或第三方平台调整造成的差异，由使用者自行核实。</p>
+        <h3>账号与信息安全</h3>
+        <p>Cookie、Token、账号密码等敏感信息仅用于当前系统配置。使用者应妥善保管，不得泄露给无关人员。因账号、Cookie、Token 泄露或被他人使用造成的损失，由使用者自行承担。</p>
+        <h3>自动化操作与打印</h3>
+        <p>自动接机、数据同步、条码打印等功能依赖本机服务、网络、打印机、浏览器及第三方平台状态。操作失败、重复操作或打印异常时，请以实际业务结果为准。</p>
+        <h3>责任限制</h3>
+        <p>本系统不构成法律、财务或商业建议。因使用本系统、依赖系统结果、配置错误、网络中断、第三方接口故障或打印错误产生的直接或间接损失，开发者不承担相应责任。</p>
+        <h3>同意条款</h3>
+        <p>继续使用本系统即表示你已阅读并同意以上免责声明。</p>
+      </div>
+    `;
+    openModal('免责声明', body, '<button class="btn btn-primary" type="button" id="modalOk">关闭</button>');
+    document.getElementById('modalOk').addEventListener('click', closeModal);
+  }
+
   function closeModal() {
     document.getElementById('modalBackdrop').classList.remove('active');
     stopCamera();
@@ -2285,6 +2326,7 @@
   });
 
   document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('disclaimerBtn').addEventListener('click', openDisclaimer);
   document.getElementById('modalBackdrop').addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeModal();
   });
