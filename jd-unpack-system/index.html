@@ -1954,7 +1954,6 @@
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
         <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
-        <button class="btn" id="jdAutoStartSnippet" type="button">自动接机</button>
         <button class="btn" id="jdAutoPinCmd" type="button">展翅自动获取</button>
         <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
@@ -1966,14 +1965,6 @@
       try {
         await navigator.clipboard.writeText(buildJdPageSnippet());
         toast('京东页面抓取命令已复制');
-      } catch (err) {
-        toast('复制失败，请手动复制', 'error');
-      }
-    });
-    document.getElementById('jdAutoStartSnippet').addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(buildAutoStartSnippet());
-        toast('自动接机命令已复制');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
