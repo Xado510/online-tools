@@ -1072,6 +1072,14 @@
   const AUTH_USER = 'admin';
   const AUTH_PASS = 'jdl950618618';
   const AUTH_KEY = 'jd_unpack_auth';
+  function getClientId() {
+    let id = localStorage.getItem('jd_client_id');
+    if (!id) {
+      id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('jd_client_id', id);
+    }
+    return id;
+  }
   const ICONS = {
     dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
     scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" x2="17" y1="12" y2="12"/>',
@@ -1450,7 +1458,7 @@
       const response = await fetch(apiUrl('/api/repair/part-barcode'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ merchantOrderNo, jdlToken, jdlCookie })
+        body: JSON.stringify({ merchantOrderNo, jdlToken, jdlCookie, clientId: getClientId() })
       });
       const data = await response.json();
       if (seq !== jdQuerySeq || !data || !data.ok) return;
@@ -1571,7 +1579,8 @@
       '  shopCode = shopRow.code || "";',
       '  facilitatorCode = shopRow.facilitatorCode || "";',
       '  const shopName = shopRow.shopName || shopRow.name || "";',
-      '  try { await fetch(bridge + "/api/repair/set-digital-cookie", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookie:document.cookie,userId:userId,appCode:localStorage.getItem("systemCode") || "",shopCode:shopCode})}); } catch (e) {}',
+      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  try { await fetch(bridge + "/api/repair/set-digital-cookie", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookie:document.cookie,userId:userId,appCode:localStorage.getItem("systemCode") || "",shopCode:shopCode,clientId})}); } catch (e) {}',
       '  const query = {expressNo: expressNo.toUpperCase()};',
       '  if (shopCode) query.shopCode = shopCode;',
       '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({pageIndex:1,pageSize:10,query:query})}).then(r => r.json());',
@@ -1630,7 +1639,8 @@
       '  const m = document.cookie.match(/(?:^|; )pin=([^;]+)/);',
       '  const token = m ? m[1] : "";',
       '  if (!token) { alert("未找到 pin，请确认已登录 jdservice.jdl.com"); return; }',
-      '  const r = await fetch(bridge + "/api/repair/set-jdl-token", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jdlToken:token})});',
+      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  const r = await fetch(bridge + "/api/repair/set-jdl-token", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jdlToken:token,clientId})});',
       '  const d = await r.json();',
       '  alert(d.ok ? "已自动配置京东物流 Token" : "配置失败：" + (d.error || ""));',
       '})();'
@@ -1650,7 +1660,7 @@
       const response = await fetch(apiUrl('/api/repair/query'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken, jdlCookie })
+        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken, jdlCookie, clientId: getClientId() })
       });
       const data = await response.json();
       if (seq !== jdQuerySeq) return;
@@ -1687,7 +1697,7 @@
       const response = await fetch(apiUrl('/api/repair/auto-start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken, jdlCookie })
+        body: JSON.stringify({ expressNo: code, cookie, userId, appCode, shopCode, jdlToken, jdlCookie, clientId: getClientId() })
       });
       const data = await response.json();
       if (seq !== jdQuerySeq) return;
