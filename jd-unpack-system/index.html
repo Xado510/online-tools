@@ -795,7 +795,7 @@
             <div class="scan-actions">
               <button class="btn btn-primary" id="lookupBtn" type="button"><span data-icon="search"></span>查询</button>
               <button class="btn" id="cameraBtn" type="button"><span data-icon="camera"></span>扫码</button>
-              <button class="btn" id="simulateBtn" type="button"><span data-icon="scan"></span>模拟扫码</button>
+              <button class="btn" id="batchAssignBtnScan" type="button"><span data-icon="package"></span>批量分配</button>
             </div>
           </div>
           <div class="sample-row">
@@ -2131,7 +2131,7 @@
   document.getElementById('trackingInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') lookupTracking(document.getElementById('trackingInput').value);
   });
-  document.getElementById('simulateBtn').addEventListener('click', simulateScan);
+  document.getElementById('batchAssignBtnScan').addEventListener('click', batchAssignCopy);
   document.getElementById('cameraBtn').addEventListener('click', openCamera);
   document.getElementById('confirmBtn').addEventListener('click', () => confirmUnpack(false));
   document.getElementById('anomalyBtn').addEventListener('click', () => confirmUnpack(true));
