@@ -1158,10 +1158,68 @@
   }
 
   function saveState() {
+    saveLocalState();
+    pushStateToServer();
+  }
+
+  function saveLocalState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (err) {
       console.warn(err);
+    }
+  }
+
+  function stateTime(item) {
+    return String((item && (item.updatedAt || item.unpackedAt || item.createdAt)) || '');
+  }
+
+  function mergeStateList(localList, remoteList) {
+    const combined = {};
+    [...(localList || []), ...(remoteList || [])].forEach((item) => {
+      if (!item || !item.id) return;
+      const key = String(item.id);
+      if (!combined[key] || stateTime(item) >= stateTime(combined[key])) {
+        combined[key] = item;
+      }
+    });
+    return Object.values(combined);
+  }
+
+  function mergeSharedState(local, remote) {
+    return {
+      settings: local.settings || { goal: 120, operator: 'admin', station: '3号拆包台' },
+      parcels: mergeStateList(local.parcels, remote.parcels),
+      anomalies: mergeStateList(local.anomalies, remote.anomalies)
+    };
+  }
+
+  async function pushStateToServer() {
+    try {
+      await fetch(apiUrl('/api/state'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account: AUTH_USER,
+          state: { parcels: state.parcels || [], anomalies: state.anomalies || [] }
+        })
+      });
+    } catch (err) {
+      // 本地仍可作业，联网后再次同步。
+    }
+  }
+
+  async function refreshSharedState() {
+    try {
+      const response = await fetch(apiUrl(`/api/state?account=${encodeURIComponent(AUTH_USER)}`));
+      const data = await response.json();
+      const remote = (data && data.state) || { parcels: [], anomalies: [] };
+      state = mergeSharedState(state, remote);
+      saveLocalState();
+      pushStateToServer();
+      renderAll();
+    } catch (err) {
+      // 未连接后端时继续使用本地数据。
     }
   }
 
@@ -1176,6 +1234,7 @@
       (hasConfig && localStorage.getItem('jd_logged_out') !== '1');
     document.body.classList.toggle('auth-locked', !authed);
     document.getElementById('loginOverlay').classList.toggle('hidden', authed);
+    return authed;
   }
 
   function logout() {
@@ -1422,6 +1481,7 @@
         partBarcode: data.partBarcode || currentScan.partBarcode || '',
         jdRepair: data
       });
+      currentScan.updatedAt = new Date().toISOString();
       if (currentScan.__index >= 0) {
         state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
       } else {
@@ -1527,6 +1587,7 @@
       status: 'pending',
       description: reasons.join('，'),
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       handler: state.settings.operator,
       resolvedAt: null
     });
@@ -1827,6 +1888,7 @@
       note,
       duration,
       createdAt: currentScan.createdAt || nowIso,
+      updatedAt: nowIso,
       unpackedAt: nowIso
     };
 
@@ -1842,6 +1904,7 @@
         status: 'pending',
         description: note || (missingCount > 0 ? `应到 ${currentScan.quantity} 件，实到 ${checkedCount} 件` : `外包装${condition}`),
         createdAt: nowIso,
+        updatedAt: nowIso,
         handler: state.settings.operator,
         resolvedAt: null
       });
@@ -2382,6 +2445,7 @@
       document.getElementById('loginPassword').value = '';
       document.getElementById('loginError').textContent = '';
       applyAuthGate();
+      refreshSharedState();
     } else {
       document.getElementById('loginError').textContent = '账号或密码错误';
     }
@@ -2399,7 +2463,9 @@
     if (rightPupil) rightPupil.setAttribute('cx', 105 + shiftX);
     if (rightPupil) rightPupil.setAttribute('cy', 57 + shiftY);
   });
-  applyAuthGate();
+  if (applyAuthGate()) {
+    refreshSharedState();
+  }
 
   hydrateIcons();
   applyHash();
