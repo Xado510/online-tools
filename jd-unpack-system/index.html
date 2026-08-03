@@ -1968,7 +1968,10 @@
         查询后自动开始接机并同步备件条码
       </label>
       <label class="field-label" for="jdBarPrinterPath">条码打印软件路径（可选）</label>
-      <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
+      <div style="display:flex;gap:8px">
+        <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
+        <button class="btn" id="jdFindPrinterBtn" type="button">自动查找</button>
+      </div>
       <label class="field-label" for="jdApiBase">服务地址（可选）</label>
       <input class="search-input" id="jdApiBase" value="${escapeHtml(apiBase)}" placeholder="例如公网隧道地址或 http://127.0.0.1:9090">
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
@@ -1981,6 +1984,7 @@
     `;
     openModal('京东接口设置', body, '<button class="btn btn-primary" type="button" id="jdSaveBtn">保存</button>');
     document.getElementById('jdSaveBtn').addEventListener('click', saveJdSettings);
+    document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
     document.getElementById('jdCopySnippet').addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(buildJdPageSnippet());
@@ -2016,6 +2020,24 @@
     localStorage.setItem('jd_api_base', document.getElementById('jdApiBase').value.trim());
     closeModal();
     toast('京东接口设置已保存');
+  }
+
+  async function findPrinterPath() {
+    toast('正在本机查找条码打印软件...');
+    try {
+      const response = await fetch(apiUrl('/api/print/find'));
+      const data = await response.json();
+      if (data && data.ok && data.path) {
+        const input = document.getElementById('jdBarPrinterPath');
+        if (input) input.value = data.path;
+        localStorage.setItem('jd_bar_printer_path', data.path);
+        toast('已自动找到并保存打印软件路径');
+      } else {
+        toast(data && data.error ? data.error : '未在本机找到 BarPrinter.exe', 'error');
+      }
+    } catch (error) {
+      toast('自动查找打印软件失败：' + (error.message || '无法连接服务'), 'error');
+    }
   }
 
   function openModal(title, body, footer) {
