@@ -876,6 +876,7 @@
             </select>
             <input class="select-input" type="date" id="parcelDate">
             <button class="btn" id="refreshParcels" type="button"><span data-icon="refresh"></span>刷新</button>
+            <button class="btn" id="batchAssignBtn" type="button"><span data-icon="package"></span>批量分派</button>
             <button class="btn btn-danger" id="clearParcelsBtn" type="button"><span data-icon="x"></span>清空历史</button>
           </div>
           <div class="table-wrap">
@@ -2007,6 +2008,28 @@
     toast('包裹历史已清空');
   }
 
+  function batchAssignCopy() {
+    const items = state.parcels
+      .map((p) => {
+        const jd = p.jdRepair || {};
+        const model = jd.performingModel || p.performingModel || '';
+        const barcode = p.partBarcode || jd.partBarcode || '';
+        return { tracking: p.tracking, model, barcode };
+      })
+      .filter((item) => item.barcode && item.model && item.model !== '维修' && item.model !== '--');
+
+    if (!items.length) {
+      toast('没有可复制的备件条码', 'error');
+      return;
+    }
+
+    const text = items.map((item) => item.barcode).join('\n');
+    navigator.clipboard.writeText(text).then(
+      () => toast(`已复制 ${items.length} 条非维修备件条码`),
+      () => toast('复制失败，请手动复制', 'error')
+    );
+  }
+
   async function openCamera() {
     if (!navigator.mediaDevices || !('BarcodeDetector' in window)) {
       toast('当前浏览器不支持摄像头扫码，请手动输入', 'error');
@@ -2110,6 +2133,7 @@
   document.getElementById('parcelStatus').addEventListener('change', renderParcels);
   document.getElementById('parcelDate').addEventListener('change', renderParcels);
   document.getElementById('refreshParcels').addEventListener('click', renderParcels);
+  document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
 
   document.getElementById('parcelTbody').addEventListener('click', (event) => {
