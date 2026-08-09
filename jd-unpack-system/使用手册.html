@@ -123,7 +123,7 @@
   <div class="flow">
     <div class="flow-step"><b>1. 登录系统</b>输入账号 admin，密码 jdl950618618</div>
     <div class="flow-step"><b>2. 配置接口</b>右上角机器人进入设置，确认 Cookie、Token；服务地址已自动配置</div>
-    <div class="flow-step"><b>3. 查询单号</b>输入快递单号并点击“查询”</div>
+    <div class="flow-step"><b>3. 查询单号</b>输入快递单号或履约单号，全码会自动识别</div>
     <div class="flow-step"><b>4. 自动接机</b>系统自动判断并确认接机</div>
     <div class="flow-step"><b>5. 同步条码</b>自动查询展翅备件条码并同步</div>
     <div class="flow-step"><b>6. 拆包/批量分配</b>确认拆包或复制非维修条码</div>
@@ -161,7 +161,7 @@
       <div class="flow-step"><b>4. 确认服务连接</b>无需填写服务地址，系统自动连接主电脑桥接服务</div>
       <div class="flow-step"><b>5. 配置京东 Cookie</b>执行“宝藏自动获取”</div>
       <div class="flow-step"><b>6. 配置展翅 Cookie</b>执行“展翅自动获取”</div>
-      <div class="flow-step"><b>7. 保存并测试</b>输入快递单号查询</div>
+      <div class="flow-step"><b>7. 保存并测试</b>输入快递单号或履约单号查询</div>
     </div>
   </div>
 
@@ -233,17 +233,18 @@
   <ol>
     <li>点击“保存”。</li>
     <li>进入“扫码拆包”。</li>
-    <li>输入快递单号，例如 <code>JDX057168922378</code>。</li>
+    <li>输入快递单号或履约单号，例如 <code>JDX057168922378</code>。</li>
     <li>点击“查询”。</li>
     <li>确认页面显示履约单号、履约模式、备件条码。</li>
     <li>切到“历史记录”确认包裹已同步。</li>
   </ol>
 
   <h2>五、扫码拆包</h2>
-  <h3>4.1 查询快递单</h3>
+  <h3>4.1 查询快递单/履约单</h3>
   <ol>
     <li>进入“扫码拆包”。</li>
-    <li>在“输入运单号”中输入快递单号，例如 <code>JDX057168922378</code>。</li>
+    <li>支持输入快递单号或履约单号，例如 <code>JDX057168922378</code> 或履约单号。</li>
+    <li>支持扫描全码，例如 <code>JDX056229338452-1-1-</code>，系统会自动识别为 <code>JDX056229338452</code>。</li>
     <li>点击“查询”。</li>
     <li>系统会自动连接京东维修后台，查询维修信息并自动确认接机。</li>
   </ol>
