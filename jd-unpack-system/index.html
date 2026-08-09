@@ -1489,6 +1489,7 @@
     if (data && data.ok && data.found && currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
       const commit = (data.detail && data.detail.repairCommitInfoDto) || {};
       Object.assign(currentScan, {
+        tracking: data.expressNo || currentScan.tracking,
         product: data.productName || commit.outerMainSkuName || commit.outerSkuName || currentScan.product,
         sku: data.sku || commit.outerSku || currentScan.sku,
         category: data.category || currentScan.category,
