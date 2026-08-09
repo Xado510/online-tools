@@ -1056,7 +1056,6 @@
                   <th>状态</th>
                   <th>操作员</th>
                   <th>更新时间</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody id="parcelTbody"></tbody>
@@ -2427,10 +2426,9 @@
           <td>${statusBadge(p.status)}</td>
           <td>${escapeHtml(p.operator)}</td>
           <td>${formatTime(p.unpackedAt || p.createdAt)}</td>
-          <td><button class="mini-btn" type="button" data-detail-btn="${p.id}">详情</button></td>
         </tr>
       `).join('')
-      : '<tr class="empty-row"><td colspan="7">没有匹配的包裹</td></tr>';
+      : '<tr class="empty-row"><td colspan="6">没有匹配的包裹</td></tr>';
   }
 
   function renderAnomalies() {
