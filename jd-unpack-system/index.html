@@ -1155,7 +1155,11 @@
   function loadState() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        parsed.parcels = mergeParcelList([], parsed.parcels || []);
+        return parsed;
+      }
     } catch (err) {
       console.warn(err);
     }
@@ -1179,6 +1183,46 @@
     return String((item && (item.updatedAt || item.unpackedAt || item.createdAt)) || '');
   }
 
+  function collectParcelCodes(item) {
+    const jd = (item && item.jdRepair) || {};
+    return [
+      item && item.tracking,
+      item && item.order,
+      item && item.performingOrderNo,
+      jd.performingOrderNo,
+      jd.expressNo,
+      jd.serviceOrderNo,
+      jd.merchantOrderNo
+    ].map((value) => String(value || '').trim().toUpperCase()).filter(Boolean);
+  }
+
+  function parcelMatches(a, b) {
+    if (!a || !b) return false;
+    const codes = new Set(collectParcelCodes(a));
+    return collectParcelCodes(b).some((code) => codes.has(code));
+  }
+
+  function mergeParcelList(localList, remoteList) {
+    const combined = [];
+    [...(localList || []), ...(remoteList || [])].forEach((item) => {
+      if (!item || !item.id) return;
+      const index = combined.findIndex((existing) => parcelMatches(existing, item));
+      if (index < 0) {
+        combined.push(item);
+        return;
+      }
+      const existing = combined[index];
+      const existingClosed = existing.status === 'done' || existing.status === 'anomaly';
+      const itemClosed = item.status === 'done' || item.status === 'anomaly';
+      if (itemClosed && !existingClosed) {
+        combined[index] = item;
+      } else if (stateTime(item) >= stateTime(existing)) {
+        combined[index] = item;
+      }
+    });
+    return combined;
+  }
+
   function mergeStateList(localList, remoteList) {
     const combined = {};
     [...(localList || []), ...(remoteList || [])].forEach((item) => {
@@ -1194,7 +1238,7 @@
   function mergeSharedState(local, remote) {
     return {
       settings: local.settings || { goal: 120, operator: 'admin', station: '3号拆包台' },
-      parcels: mergeStateList(local.parcels, remote.parcels),
+      parcels: mergeParcelList(local.parcels, remote.parcels),
       anomalies: mergeStateList(local.anomalies, remote.anomalies)
     };
   }
@@ -1317,6 +1361,12 @@
     return value && map[value] ? map[value] : (value || '--');
   }
 
+  function cleanMeta(value) {
+    const text = String(value || '').trim();
+    if (!text || text === '--' || ['待核对商品', '待扫描', '综合', '京东自营', '标准纸箱'].includes(text)) return '--';
+    return text;
+  }
+
   function apiUrl(path) {
     const base = DEFAULT_API_BASE.replace(/\/+$/, '');
     return base + path;
@@ -1426,8 +1476,8 @@
     document.getElementById('recentTbody').innerHTML = recent.length
       ? recent.map((p) => `
         <tr class="clickable" data-detail="${p.id}">
-          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong><span>${escapeHtml(p.order)}</span></div></td>
-          <td><div class="parcel-main"><strong>${escapeHtml(p.product)}</strong><span>${escapeHtml(p.sku)}</span></div></td>
+          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong><span>${escapeHtml(cleanMeta(p.order))}</span></div></td>
+          <td><div class="parcel-main"><strong>${escapeHtml(cleanMeta(p.product))}</strong><span>${escapeHtml(cleanMeta(p.sku))}</span></div></td>
           <td>${escapeHtml(p.operator)}</td>
           <td>${formatTime(p.unpackedAt)}</td>
           <td>${formatDuration(p.duration)}</td>
@@ -1461,11 +1511,11 @@
 
     document.getElementById('scanMeta').innerHTML = [
       ['运单号', p.tracking],
-      ['履约单号', jd ? (jd.performingOrderNo || p.order) : p.order],
-      ['主商品三级类目', jd ? (jd.category || p.category) : p.category],
-      ['门店名称', jd ? (jd.shopName || p.supplier) : p.supplier],
+      ['履约单号', jd ? cleanMeta(jd.performingOrderNo || p.order) : cleanMeta(p.order)],
+      ['主商品三级类目', jd ? cleanMeta(jd.category || p.category) : cleanMeta(p.category)],
+      ['门店名称', jd ? cleanMeta(jd.shopName || p.supplier) : cleanMeta(p.supplier)],
       ['履约模式', jd ? formatPerformingModel(jd.performingModel) : '--'],
-      ['备件条码', polling ? `正在查询 ${polling.attempts}/${polling.max}...` : (jd ? (jd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--'))]
+      ['备件条码', polling ? `正在查询 ${polling.attempts}/${polling.max}...` : (jd ? cleanMeta(jd.partBarcode || p.partBarcode) : cleanMeta(p.partBarcode))]
     ].map(([label, value]) => `
       <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
     `).join('');
@@ -1475,8 +1525,8 @@
         <input type="checkbox" class="item-check" checked>
         <span class="product-icon">${icon('box')}</span>
         <span class="product-info">
-          <strong>${escapeHtml(p.product)}</strong>
-          <span>${escapeHtml(p.sku)} · 第 ${index + 1} 件</span>
+          <strong>${escapeHtml(cleanMeta(p.product))}</strong>
+          <span>${escapeHtml(cleanMeta(p.sku))} · 第 ${index + 1} 件</span>
         </span>
         <span class="quantity">× 1</span>
       </label>
@@ -1505,8 +1555,25 @@
       } else {
         const saved = { ...currentScan };
         delete saved.__index;
-        state.parcels.push(saved);
-        currentScan.__index = state.parcels.length - 1;
+        const duplicateIndex = state.parcels.findIndex((p) => parcelMatches(p, saved));
+        if (duplicateIndex >= 0) {
+          const existing = state.parcels[duplicateIndex];
+          saved.id = existing.id;
+          saved.createdAt = existing.createdAt || saved.createdAt;
+          if (existing.status === 'done' || existing.status === 'anomaly') {
+            saved.status = existing.status;
+            saved.unpackedAt = existing.unpackedAt || saved.unpackedAt;
+            saved.duration = existing.duration || saved.duration;
+            saved.note = existing.note || saved.note;
+            saved.condition = existing.condition || saved.condition;
+          }
+          state.parcels[duplicateIndex] = saved;
+          currentScan.__index = duplicateIndex;
+          currentScan.id = existing.id;
+        } else {
+          state.parcels.push(saved);
+          currentScan.__index = state.parcels.length - 1;
+        }
       }
       saveState();
       renderParcels();
@@ -1895,13 +1962,13 @@
     currentScan = {
       ...(demo || {
         tracking: normalized,
-        order: `JD-${dateNum()}-${Date.now().toString().slice(-4)}`,
-        product: '待核对商品',
-        sku: '待扫描',
-        category: '综合',
+        order: '--',
+        product: '--',
+        sku: '--',
+        category: '--',
         quantity: 1,
-        supplier: '京东自营',
-        box: '标准纸箱',
+        supplier: '--',
+        box: '--',
         weight: '--'
       }),
       id: `JD${dateNum()}${Date.now().toString().slice(-5)}`,
@@ -1984,7 +2051,15 @@
       state.parcels[currentScan.__index] = { ...parcel, __index: undefined };
     } else {
       delete parcel.__index;
-      state.parcels.push(parcel);
+      const duplicateIndex = state.parcels.findIndex((p) => parcelMatches(p, parcel));
+      if (duplicateIndex >= 0) {
+        const existing = state.parcels[duplicateIndex];
+        parcel.id = existing.id;
+        parcel.createdAt = existing.createdAt || parcel.createdAt;
+        state.parcels[duplicateIndex] = parcel;
+      } else {
+        state.parcels.push(parcel);
+      }
     }
     return { parcel, hasAnomaly };
   }
@@ -2039,7 +2114,7 @@
     const detailJd = p.jdRepair && p.jdRepair.ok && p.jdRepair.found ? p.jdRepair : null;
     const body = `
       <div class="detail-grid">
-        ${[['运单号', p.tracking], ['履约单号', detailJd ? (detailJd.performingOrderNo || p.order) : p.order], ['主商品三级类目', detailJd ? (detailJd.category || p.category) : p.category], ['门店名称', detailJd ? (detailJd.shopName || p.supplier) : p.supplier], ['履约模式', detailJd ? formatPerformingModel(detailJd.performingModel) : '--'], ['备件条码', detailJd ? (detailJd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--')], ['操作员', p.operator], ['更新时间', formatTime(p.unpackedAt || p.createdAt)]].map(([label, value]) => `
+        ${[['运单号', p.tracking], ['履约单号', detailJd ? cleanMeta(detailJd.performingOrderNo || p.order) : cleanMeta(p.order)], ['主商品三级类目', detailJd ? cleanMeta(detailJd.category || p.category) : cleanMeta(p.category)], ['门店名称', detailJd ? cleanMeta(detailJd.shopName || p.supplier) : cleanMeta(p.supplier)], ['履约模式', detailJd ? formatPerformingModel(detailJd.performingModel) : '--'], ['备件条码', detailJd ? cleanMeta(detailJd.partBarcode || p.partBarcode) : cleanMeta(p.partBarcode)], ['操作员', p.operator], ['更新时间', formatTime(p.unpackedAt || p.createdAt)]].map(([label, value]) => `
           <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
         `).join('')}
       </div>
@@ -2047,8 +2122,8 @@
         ${Array.from({ length: p.quantity }, (_, index) => `
           <div class="detail-product">
             <div>
-              <strong>${escapeHtml(p.product)}</strong>
-              <span>${escapeHtml(p.sku)} · 第 ${index + 1} 件</span>
+              <strong>${escapeHtml(cleanMeta(p.product))}</strong>
+              <span>${escapeHtml(cleanMeta(p.sku))} · 第 ${index + 1} 件</span>
             </div>
             <span class="quantity">× 1</span>
           </div>
@@ -2232,8 +2307,8 @@
       ? list.map((p) => `
         <tr class="clickable" data-detail="${p.id}">
           <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong></div></td>
-          <td>${escapeHtml(p.order)}</td>
-          <td><div class="parcel-main"><strong>${escapeHtml(p.product)}</strong><span>${escapeHtml(p.sku)} · ${escapeHtml(p.supplier)}</span></div></td>
+          <td>${escapeHtml(cleanMeta(p.order))}</td>
+          <td><div class="parcel-main"><strong>${escapeHtml(cleanMeta(p.product))}</strong><span>${escapeHtml(cleanMeta(p.sku))} · ${escapeHtml(cleanMeta(p.supplier))}</span></div></td>
           <td>${statusBadge(p.status)}</td>
           <td>${escapeHtml(p.operator)}</td>
           <td>${formatTime(p.unpackedAt || p.createdAt)}</td>
