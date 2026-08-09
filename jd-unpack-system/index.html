@@ -1449,22 +1449,23 @@
     work.classList.remove('hidden');
 
     const p = currentScan;
-    const statusLine = p.__index >= 0
-      ? `已存在包裹 · ${statusBadge(p.status)}`
-      : '新包裹 · 核对后确认拆包';
-    document.getElementById('scanTitle').textContent = p.status === 'done' ? '包裹已处理' : '包裹信息';
-    document.getElementById('scanStatusLine').innerHTML = statusLine;
-
     const jd = jdRepairResult && jdRepairResult.ok && jdRepairResult.found
       ? jdRepairResult
       : (p.jdRepair && p.jdRepair.ok && p.jdRepair.found ? p.jdRepair : null);
+    const polling = jd && jd.barcodePolling && jd.barcodePolling.max ? jd.barcodePolling : null;
+    const statusLine = polling
+      ? `备件条码循环查询中 ${polling.attempts}/${polling.max}`
+      : (p.__index >= 0 ? `已存在包裹 · ${statusBadge(p.status)}` : '新包裹 · 核对后确认拆包');
+    document.getElementById('scanTitle').textContent = polling ? '备件条码查询中' : (p.status === 'done' ? '包裹已处理' : '包裹信息');
+    document.getElementById('scanStatusLine').innerHTML = statusLine;
+
     document.getElementById('scanMeta').innerHTML = [
       ['运单号', p.tracking],
       ['履约单号', jd ? (jd.performingOrderNo || p.order) : p.order],
       ['主商品三级类目', jd ? (jd.category || p.category) : p.category],
       ['门店名称', jd ? (jd.shopName || p.supplier) : p.supplier],
       ['履约模式', jd ? formatPerformingModel(jd.performingModel) : '--'],
-      ['备件条码', jd ? (jd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--')]
+      ['备件条码', polling ? `正在查询 ${polling.attempts}/${polling.max}...` : (jd ? (jd.partBarcode || p.partBarcode || '--') : (p.partBarcode || '--'))]
     ].map(([label, value]) => `
       <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
     `).join('');
@@ -1528,22 +1529,29 @@
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     if (!jdlToken && !jdlCookie) {
+      if (jdRepairResult) jdRepairResult.barcodePolling = null;
       maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
       toast('未配置展翅 Token/Cookie，已挂入异常处理', 'error');
       return;
     }
     let attempts = 0;
+    if (jdRepairResult) jdRepairResult.barcodePolling = { attempts: 0, max: PART_BARCODE_MAX_ATTEMPTS };
+    renderScan();
     const run = async () => {
       if (seq !== jdQuerySeq) return;
       attempts += 1;
+      if (jdRepairResult) jdRepairResult.barcodePolling = { attempts, max: PART_BARCODE_MAX_ATTEMPTS };
+      renderScan();
       toast(`正在循环查询备件条码 ${attempts}/${PART_BARCODE_MAX_ATTEMPTS}`, '');
       const found = await fetchPartBarcode(merchantOrderNo, code, seq);
       if (seq !== jdQuerySeq) return;
       if (found) {
+        if (jdRepairResult) jdRepairResult.barcodePolling = null;
         toast('已查询到备件条码并同步', 'success');
         return;
       }
       if (attempts >= PART_BARCODE_MAX_ATTEMPTS) {
+        if (jdRepairResult) jdRepairResult.barcodePolling = null;
         maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
         toast(`已循环 ${PART_BARCODE_MAX_ATTEMPTS} 次仍未查询到备件条码，已挂入异常处理`, 'error');
         return;
@@ -1574,6 +1582,7 @@
       if (currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
         currentScan.partBarcode = data.partBarcode;
         if (currentScan.jdRepair) currentScan.jdRepair.partBarcode = data.partBarcode;
+        if (currentScan.jdRepair) currentScan.jdRepair.barcodePolling = null;
         if (currentScan.__index >= 0) {
           state.parcels[currentScan.__index] = { ...currentScan, __index: undefined };
           saveState();
