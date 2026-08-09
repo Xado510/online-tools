@@ -1434,7 +1434,10 @@
     document.getElementById('pageTitle').textContent = meta[view][0];
     document.getElementById('pageSubtitle').textContent = meta[view][1];
     if (view === 'dashboard') renderDashboard();
-    if (view === 'parcels') renderParcels();
+    if (view === 'parcels') {
+      renderParcels();
+      refreshSharedState();
+    }
     if (view === 'anomalies') renderAnomalies();
   }
 
@@ -2337,7 +2340,17 @@
 
     if (status !== 'all') list = list.filter((p) => p.status === status);
     if (search) {
-      list = list.filter((p) => [p.tracking, p.order].some((value) => String(value).toLowerCase().includes(search)));
+      list = list.filter((p) => {
+        const jd = p.jdRepair || {};
+        return [
+          p.tracking,
+          p.order,
+          jd.performingOrderNo,
+          jd.expressNo,
+          jd.serviceOrderNo,
+          jd.merchantOrderNo
+        ].some((value) => String(value || '').toLowerCase().includes(search));
+      });
     }
     if (date) {
       list = list.filter((p) => new Date(p.createdAt).toISOString().slice(0, 10) === date);
@@ -2582,7 +2595,10 @@
   document.getElementById('parcelSearch').addEventListener('input', renderParcels);
   document.getElementById('parcelStatus').addEventListener('change', renderParcels);
   document.getElementById('parcelDate').addEventListener('change', renderParcels);
-  document.getElementById('refreshParcels').addEventListener('click', renderParcels);
+  document.getElementById('refreshParcels').addEventListener('click', async () => {
+    await refreshSharedState();
+    renderParcels();
+  });
   document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
 
