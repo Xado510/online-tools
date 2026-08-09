@@ -916,7 +916,7 @@
       <section class="view" id="view-scan">
         <section class="panel scan-head">
           <div class="scan-search">
-            <input class="search-input" id="trackingInput" placeholder="输入运单号" autocomplete="off" spellcheck="false">
+            <input class="search-input" id="trackingInput" placeholder="输入快递单号/履约单号" autocomplete="off" spellcheck="false">
             <div class="scan-actions">
               <button class="btn btn-primary" id="lookupBtn" type="button"><span data-icon="search"></span>查询</button>
               <button class="btn" id="batchAssignBtnScan" type="button"><span data-icon="package"></span>批量分配</button>
@@ -1846,19 +1846,35 @@
     }
   }
 
+  function normalizeScanCode(value) {
+    let code = String(value || '').trim().toUpperCase().replace(/[\s\r\n\t]+/g, '');
+    const first = code.split(/[-_]/)[0].trim();
+    return /^[A-Z0-9]{6,}$/.test(first) ? first : code;
+  }
+
   function lookupTracking(code) {
-    const normalized = code.trim();
+    const normalized = normalizeScanCode(code);
     if (!normalized) {
-      toast('请输入或扫描运单号', 'error');
+      toast('请输入或扫描快递单号/履约单号', 'error');
       return;
     }
+    const input = document.getElementById('trackingInput');
+    if (input) input.value = normalized;
     if (localStorage.getItem('jd_auto_start') !== '0') {
       queryJdRepairAutoStart(normalized);
     } else {
       queryJdRepair(normalized);
     }
 
-    const existingIndex = state.parcels.findIndex((p) => p.tracking.toLowerCase() === normalized.toLowerCase());
+    const matchesParcelCode = (p) => [
+      p.tracking,
+      p.order,
+      p.jdRepair && p.jdRepair.performingOrderNo,
+      p.jdRepair && p.jdRepair.merchantOrderNo,
+      p.jdRepair && p.jdRepair.serviceOrderNo,
+      p.jdRepair && p.jdRepair.expressNo
+    ].some((value) => String(value || '').toUpperCase() === normalized);
+    const existingIndex = state.parcels.findIndex(matchesParcelCode);
     if (existingIndex >= 0) {
       const existing = state.parcels[existingIndex];
       if (existing.status === 'done' || existing.status === 'anomaly') {
@@ -1873,7 +1889,7 @@
       return;
     }
 
-    const demo = DEMO_PACKAGES.find((p) => p.tracking.toLowerCase() === normalized.toLowerCase());
+    const demo = DEMO_PACKAGES.find((p) => p.tracking.toUpperCase() === normalized || String(p.order || '').toUpperCase() === normalized);
     const nowIso = new Date().toISOString();
     currentScan = {
       ...(demo || {
