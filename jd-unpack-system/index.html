@@ -1753,7 +1753,7 @@
     } catch (error) {
       if (seq !== jdQuerySeq) return;
       jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
-      toast('无法连接京东查询服务，请检查设置里的服务地址', 'error');
+      toast('无法连接京东查询服务，请确认主电脑桥接服务已启动', 'error');
     }
   }
 
@@ -1802,7 +1802,7 @@
     } catch (error) {
       if (seq !== jdQuerySeq) return;
       jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
-      toast('无法连接京东查询服务，请检查设置里的服务地址', 'error');
+      toast('无法连接京东查询服务，请确认主电脑桥接服务已启动', 'error');
     }
   }
 
