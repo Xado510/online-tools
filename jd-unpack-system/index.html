@@ -1513,7 +1513,9 @@
 
     const categoryMap = new Map();
     doneToday.forEach((p) => {
-      const rawCategory = (p.jdRepair && (p.jdRepair.category || p.jdRepair.outerMainSkuThridCategory)) || p.category || '';
+      const jd = p.jdRepair || {};
+      const commit = (jd.detail && jd.detail.repairCommitInfoDto) || {};
+      const rawCategory = jd.category || jd.outerMainSkuThridCategory || jd.outerMainSkuThirdCategory || commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory || '';
       const category = cleanMeta(rawCategory);
       const label = category === '--' ? '未分类' : category;
       categoryMap.set(label, (categoryMap.get(label) || 0) + 1);
