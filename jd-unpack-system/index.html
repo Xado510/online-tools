@@ -1073,6 +1073,7 @@
   const AUTH_PASS = 'jdl950618618';
   const AUTH_KEY = 'jd_unpack_auth';
   const LAST_CLEARED_KEY = 'jd_last_cleared_at';
+  const DEFAULT_API_BASE = 'https://enquiries-permission-enhanced-developmental.trycloudflare.com';
   function getClientId() {
     let id = localStorage.getItem('jd_client_id');
     if (!id) {
@@ -1236,8 +1237,8 @@
   }
 
   function applyAuthGate() {
+    localStorage.removeItem('jd_api_base');
     const hasConfig = Boolean(
-      localStorage.getItem('jd_api_base') ||
       localStorage.getItem('jd_cookie') ||
       localStorage.getItem('jd_jdl_cookie') ||
       localStorage.getItem('jd_jdl_token')
@@ -1314,12 +1315,12 @@
   }
 
   function apiUrl(path) {
-    const base = (localStorage.getItem('jd_api_base') || 'https://enquiries-permission-enhanced-developmental.trycloudflare.com').replace(/\/+$/, '');
+    const base = DEFAULT_API_BASE.replace(/\/+$/, '');
     return base + path;
   }
 
   function bridgeOrigin() {
-    const base = (localStorage.getItem('jd_api_base') || 'https://enquiries-permission-enhanced-developmental.trycloudflare.com').replace(/\/+$/, '');
+    const base = DEFAULT_API_BASE.replace(/\/+$/, '');
     return base || location.origin;
   }
 
@@ -2040,7 +2041,6 @@
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     const barPrinterPath = localStorage.getItem('jd_bar_printer_path') || '';
-    const apiBase = localStorage.getItem('jd_api_base') || '';
     const body = `
       <label class="field-label" for="jdCookie">Cookie</label>
       <textarea id="jdCookie" rows="5" placeholder="粘贴京东请求头中的 Cookie">${escapeHtml(cookie)}</textarea>
@@ -2057,8 +2057,6 @@
         <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
         <button class="btn" id="jdFindPrinterBtn" type="button">自动查找</button>
       </div>
-      <label class="field-label" for="jdApiBase">服务地址（可选）</label>
-      <input class="search-input" id="jdApiBase" value="${escapeHtml(apiBase)}" placeholder="例如公网隧道地址或 http://127.0.0.1:9090">
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
         <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
@@ -2102,7 +2100,6 @@
     localStorage.setItem('jd_jdl_cookie', document.getElementById('jdJdlCookie').value.trim());
     localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
     localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
-    localStorage.setItem('jd_api_base', document.getElementById('jdApiBase').value.trim());
     closeModal();
     toast('京东接口设置已保存');
   }
