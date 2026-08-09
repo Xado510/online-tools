@@ -462,6 +462,65 @@
   .status-resolved { background: var(--blue-light); color: var(--blue); }
 
   .table-wrap { overflow-x: auto; }
+  .history-mode { display: flex; gap: 8px; margin-bottom: 12px; }
+  .parcel-slider-wrap { display: none; margin-bottom: 14px; }
+  .parcel-slider-wrap.active { display: block; }
+  .parcel-slider {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding: 4px 2px 12px;
+  }
+  .parcel-slider-card {
+    flex: 0 0 300px;
+    max-width: 88vw;
+    scroll-snap-align: start;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: 14px;
+  }
+  .parcel-slider-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .parcel-slider-card-head strong { font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+  .slider-card-grid {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 8px 10px;
+    font-size: 12px;
+  }
+  .slider-card-grid span { color: var(--text-3); }
+  .slider-card-grid strong { color: var(--text-1); overflow-wrap: anywhere; text-align: right; }
+  .parcel-slider-card .mini-btn { margin-top: 12px; width: 100%; }
+  .slider-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .slider-nav {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .slider-nav:hover { color: var(--red); border-color: var(--red); }
+  .slider-count { font-size: 12px; color: var(--text-2); }
   table { width: 100%; border-collapse: collapse; min-width: 760px; }
   th {
     padding: 10px 12px;
@@ -1033,7 +1092,19 @@
             <button class="btn" id="batchAssignBtn" type="button"><span data-icon="package"></span>批量分派</button>
             <button class="btn btn-danger" id="clearParcelsBtn" type="button"><span data-icon="x"></span>清空历史</button>
           </div>
-          <div class="table-wrap">
+          <div class="history-mode">
+            <button class="btn" id="historyTableBtn" type="button">列表</button>
+            <button class="btn btn-primary" id="historySliderBtn" type="button">滑动</button>
+          </div>
+          <div class="parcel-slider-wrap active" id="parcelSliderWrap">
+            <div class="parcel-slider" id="parcelSlider"></div>
+            <div class="slider-actions">
+              <button class="slider-nav" id="sliderPrevBtn" type="button" aria-label="上一个">‹</button>
+              <span class="slider-count" id="sliderCount">0 条</span>
+              <button class="slider-nav" id="sliderNextBtn" type="button" aria-label="下一个">›</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="parcelTableWrap">
             <table>
               <thead>
                 <tr>
@@ -1158,6 +1229,7 @@
   let jdPollTimer = null;
   let jdPartBarcodeTimer = null;
   let onlyPendingAnomalies = false;
+  let historyMode = 'slider';
   let cameraStream = null;
   let cameraTimer = null;
 
@@ -2332,6 +2404,52 @@
     stopCamera();
   }
 
+  function parcelTrackingText(p) {
+    const jd = p.jdRepair || {};
+    return p.isPerformingQuery ? cleanMeta(jd.expressNo) : cleanMeta(p.tracking);
+  }
+
+  function renderParcelSlider(list) {
+    document.getElementById('parcelSlider').innerHTML = list.length
+      ? list.map((p) => `
+        <article class="parcel-slider-card" data-detail="${p.id}">
+          <div class="parcel-slider-card-head">
+            <strong>${escapeHtml(parcelTrackingText(p))}</strong>
+            <span>${statusBadge(p.status)}</span>
+          </div>
+          <div class="slider-card-grid">
+            <span>履约单号</span><strong>${escapeHtml(cleanMeta(p.order))}</strong>
+            <span>商品</span><strong>${escapeHtml(cleanMeta(p.product))}</strong>
+            <span>SKU</span><strong>${escapeHtml(cleanMeta(p.sku))}</strong>
+            <span>门店</span><strong>${escapeHtml(cleanMeta(p.supplier))}</strong>
+            <span>备件条码</span><strong>${escapeHtml(cleanMeta(p.partBarcode))}</strong>
+            <span>更新时间</span><strong>${escapeHtml(formatTime(p.unpackedAt || p.createdAt))}</strong>
+          </div>
+          <button class="mini-btn" type="button" data-detail-btn="${p.id}">查看详情</button>
+        </article>
+      `).join('')
+      : '<div class="empty-row"><span>没有匹配的包裹</span></div>';
+    document.getElementById('sliderCount').textContent = `${list.length} 条`;
+  }
+
+  function applyHistoryMode() {
+    const sliderWrap = document.getElementById('parcelSliderWrap');
+    const tableWrap = document.getElementById('parcelTableWrap');
+    const tableBtn = document.getElementById('historyTableBtn');
+    const sliderBtn = document.getElementById('historySliderBtn');
+    sliderWrap.classList.toggle('active', historyMode === 'slider');
+    tableWrap.style.display = historyMode === 'slider' ? 'none' : '';
+    tableBtn.classList.toggle('btn-primary', historyMode !== 'slider');
+    sliderBtn.classList.toggle('btn-primary', historyMode === 'slider');
+  }
+
+  function scrollParcelSlider(direction) {
+    const slider = document.getElementById('parcelSlider');
+    const card = slider.querySelector('.parcel-slider-card');
+    const step = card ? card.offsetWidth + 12 : slider.clientWidth;
+    slider.scrollBy({ left: step * direction, behavior: 'smooth' });
+  }
+
   function renderParcels() {
     const search = document.getElementById('parcelSearch').value.trim().toLowerCase();
     const status = document.getElementById('parcelStatus').value;
@@ -2371,6 +2489,8 @@
         </tr>
       `).join('')
       : '<tr class="empty-row"><td colspan="7">没有匹配的包裹</td></tr>';
+    renderParcelSlider(list);
+    applyHistoryMode();
   }
 
   function renderAnomalies() {
@@ -2599,6 +2719,16 @@
     await refreshSharedState();
     renderParcels();
   });
+  document.getElementById('historyTableBtn').addEventListener('click', () => {
+    historyMode = 'table';
+    applyHistoryMode();
+  });
+  document.getElementById('historySliderBtn').addEventListener('click', () => {
+    historyMode = 'slider';
+    applyHistoryMode();
+  });
+  document.getElementById('sliderPrevBtn').addEventListener('click', () => scrollParcelSlider(-1));
+  document.getElementById('sliderNextBtn').addEventListener('click', () => scrollParcelSlider(1));
   document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
 
@@ -2614,6 +2744,17 @@
   document.getElementById('recentTbody').addEventListener('click', (event) => {
     const row = event.target.closest('tr[data-detail]');
     if (row) openParcelDetail(row.dataset.detail);
+  });
+
+  document.getElementById('parcelSlider').addEventListener('click', (event) => {
+    const card = event.target.closest('.parcel-slider-card');
+    if (!card) return;
+    const detailButton = event.target.closest('[data-detail-btn]');
+    if (detailButton) {
+      openParcelDetail(detailButton.dataset.detailBtn);
+      return;
+    }
+    openParcelDetail(card.dataset.detail);
   });
 
   document.getElementById('anomalyToggle').addEventListener('click', () => {
