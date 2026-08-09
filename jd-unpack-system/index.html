@@ -462,65 +462,19 @@
   .status-resolved { background: var(--blue-light); color: var(--blue); }
 
   .table-wrap { overflow-x: auto; }
-  .history-mode { display: flex; gap: 8px; margin-bottom: 12px; }
-  .parcel-slider-wrap { display: none; margin-bottom: 14px; }
-  .parcel-slider-wrap.active { display: block; }
-  .parcel-slider {
-    display: flex;
-    gap: 12px;
+  #parcelTableWrap {
+    max-height: calc(100vh - 300px);
+    min-height: 220px;
+    overflow-y: auto;
     overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    padding: 4px 2px 12px;
-  }
-  .parcel-slider-card {
-    flex: 0 0 300px;
-    max-width: 88vw;
-    scroll-snap-align: start;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--surface-2);
-    padding: 14px;
   }
-  .parcel-slider-card-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 12px;
+  #parcelTableWrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
   }
-  .parcel-slider-card-head strong { font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
-  .slider-card-grid {
-    display: grid;
-    grid-template-columns: 72px 1fr;
-    gap: 8px 10px;
-    font-size: 12px;
-  }
-  .slider-card-grid span { color: var(--text-3); }
-  .slider-card-grid strong { color: var(--text-1); overflow-wrap: anywhere; text-align: right; }
-  .parcel-slider-card .mini-btn { margin-top: 12px; width: 100%; }
-  .slider-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 8px;
-  }
-  .slider-nav {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-2);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .slider-nav:hover { color: var(--red); border-color: var(--red); }
-  .slider-count { font-size: 12px; color: var(--text-2); }
   table { width: 100%; border-collapse: collapse; min-width: 760px; }
   th {
     padding: 10px 12px;
@@ -1091,18 +1045,6 @@
             <button class="btn" id="refreshParcels" type="button"><span data-icon="refresh"></span>刷新</button>
             <button class="btn" id="batchAssignBtn" type="button"><span data-icon="package"></span>批量分派</button>
             <button class="btn btn-danger" id="clearParcelsBtn" type="button"><span data-icon="x"></span>清空历史</button>
-          </div>
-          <div class="history-mode">
-            <button class="btn" id="historyTableBtn" type="button">列表</button>
-            <button class="btn btn-primary" id="historySliderBtn" type="button">滑动</button>
-          </div>
-          <div class="parcel-slider-wrap active" id="parcelSliderWrap">
-            <div class="parcel-slider" id="parcelSlider"></div>
-            <div class="slider-actions">
-              <button class="slider-nav" id="sliderPrevBtn" type="button" aria-label="上一个">‹</button>
-              <span class="slider-count" id="sliderCount">0 条</span>
-              <button class="slider-nav" id="sliderNextBtn" type="button" aria-label="下一个">›</button>
-            </div>
           </div>
           <div class="table-wrap" id="parcelTableWrap">
             <table>
@@ -2489,8 +2431,6 @@
         </tr>
       `).join('')
       : '<tr class="empty-row"><td colspan="7">没有匹配的包裹</td></tr>';
-    renderParcelSlider(list);
-    applyHistoryMode();
   }
 
   function renderAnomalies() {
@@ -2719,16 +2659,6 @@
     await refreshSharedState();
     renderParcels();
   });
-  document.getElementById('historyTableBtn').addEventListener('click', () => {
-    historyMode = 'table';
-    applyHistoryMode();
-  });
-  document.getElementById('historySliderBtn').addEventListener('click', () => {
-    historyMode = 'slider';
-    applyHistoryMode();
-  });
-  document.getElementById('sliderPrevBtn').addEventListener('click', () => scrollParcelSlider(-1));
-  document.getElementById('sliderNextBtn').addEventListener('click', () => scrollParcelSlider(1));
   document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
 
@@ -2744,17 +2674,6 @@
   document.getElementById('recentTbody').addEventListener('click', (event) => {
     const row = event.target.closest('tr[data-detail]');
     if (row) openParcelDetail(row.dataset.detail);
-  });
-
-  document.getElementById('parcelSlider').addEventListener('click', (event) => {
-    const card = event.target.closest('.parcel-slider-card');
-    if (!card) return;
-    const detailButton = event.target.closest('[data-detail-btn]');
-    if (detailButton) {
-      openParcelDetail(detailButton.dataset.detailBtn);
-      return;
-    }
-    openParcelDetail(card.dataset.detail);
   });
 
   document.getElementById('anomalyToggle').addEventListener('click', () => {
