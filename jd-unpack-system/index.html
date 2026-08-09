@@ -1074,6 +1074,8 @@
   const AUTH_KEY = 'jd_unpack_auth';
   const LAST_CLEARED_KEY = 'jd_last_cleared_at';
   const DEFAULT_API_BASE = 'https://enquiries-permission-enhanced-developmental.trycloudflare.com';
+  const PART_BARCODE_INTERVAL_MS = 3000;
+  const PART_BARCODE_MAX_ATTEMPTS = 5;
   function getClientId() {
     let id = localStorage.getItem('jd_client_id');
     if (!id) {
@@ -1118,6 +1120,7 @@
   let jdRepairResult = null;
   let jdQuerySeq = 0;
   let jdPollTimer = null;
+  let jdPartBarcodeTimer = null;
   let onlyPendingAnomalies = false;
   let cameraStream = null;
   let cameraTimer = null;
@@ -1509,7 +1512,7 @@
     renderScan();
     const lookupKey = (data && (data.performingOrderNo || data.merchantOrderNo || data.serviceBillNo || data.afsServiceBillNo || data.serviceOrderNo)) || '';
     if (data && data.ok && data.found && !data.partBarcode && lookupKey) {
-      fetchPartBarcode(lookupKey, code, seq);
+      startPartBarcodePolling(lookupKey, code, seq);
     } else if (data && data.ok && data.found && !data.partBarcode && !lookupKey) {
       toast('未获取到履约单号，无法查询备件条码', 'error');
       maybeRegisterAutoAnomaly(data);
@@ -1519,13 +1522,42 @@
     }
   }
 
+  function startPartBarcodePolling(merchantOrderNo, code, seq) {
+    if (!merchantOrderNo || seq !== jdQuerySeq) return;
+    clearTimeout(jdPartBarcodeTimer);
+    const jdlToken = localStorage.getItem('jd_jdl_token') || '';
+    const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
+    if (!jdlToken && !jdlCookie) {
+      maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
+      toast('未配置展翅 Token/Cookie，已挂入异常处理', 'error');
+      return;
+    }
+    let attempts = 0;
+    const run = async () => {
+      if (seq !== jdQuerySeq) return;
+      attempts += 1;
+      toast(`正在循环查询备件条码 ${attempts}/${PART_BARCODE_MAX_ATTEMPTS}`, '');
+      const found = await fetchPartBarcode(merchantOrderNo, code, seq);
+      if (seq !== jdQuerySeq) return;
+      if (found) {
+        toast('已查询到备件条码并同步', 'success');
+        return;
+      }
+      if (attempts >= PART_BARCODE_MAX_ATTEMPTS) {
+        maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
+        toast(`已循环 ${PART_BARCODE_MAX_ATTEMPTS} 次仍未查询到备件条码，已挂入异常处理`, 'error');
+        return;
+      }
+      jdPartBarcodeTimer = setTimeout(run, PART_BARCODE_INTERVAL_MS);
+    };
+    run();
+  }
+
   async function fetchPartBarcode(merchantOrderNo, code, seq) {
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     if (!jdlToken && !jdlCookie) {
-      toast('请先配置京东物流 Token 或 Cookie', 'error');
-      maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
-      return;
+      return false;
     }
     try {
       const response = await fetch(apiUrl('/api/repair/part-barcode'), {
@@ -1534,11 +1566,9 @@
         body: JSON.stringify({ merchantOrderNo, jdlToken, jdlCookie, clientId: getClientId() })
       });
       const data = await response.json();
-      if (seq !== jdQuerySeq || !data || !data.ok) return;
+      if (seq !== jdQuerySeq || !data || !data.ok) return false;
       if (!data.partBarcode) {
-        toast(data.error || '未查询到备件条码，请确认已执行展翅自动获取', 'error');
-        maybeRegisterAutoAnomaly({ ...(jdRepairResult || {}), tracking: code, partBarcode: '' });
-        return;
+        return false;
       }
       if (jdRepairResult) jdRepairResult.partBarcode = data.partBarcode;
       if (currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
@@ -1551,8 +1581,9 @@
         }
       }
       renderScan();
+      return true;
     } catch (error) {
-      toast('备件条码查询失败：' + (error.message || '无法连接服务'), 'error');
+      return false;
     }
   }
 
@@ -1792,9 +1823,9 @@
       } else if (data && data.startSuccess) {
         const startStep = Array.isArray(data.steps) ? data.steps.find((s) => s.name === 'start') : null;
         if (startStep && startStep.skipped) {
-          toast('该单已接机，直接同步备件条码');
+          toast(data.partBarcode ? '该单已接机，已同步备件条码' : '该单已接机，正在循环查询备件条码');
         } else {
-          toast('已自动开始接机并同步备件条码');
+          toast(data.partBarcode ? '已自动开始接机并同步备件条码' : '已自动开始接机，正在循环查询备件条码');
         }
       } else if (data && data.error) {
         toast(data.error, 'error');
@@ -2254,6 +2285,7 @@
     state = loadState();
     currentScan = null;
     jdQuerySeq += 1;
+    clearTimeout(jdPartBarcodeTimer);
     jdRepairResult = null;
     document.getElementById('trackingInput').value = '';
     document.getElementById('scanNote').value = '';
@@ -2276,6 +2308,7 @@
     state.parcels = [];
     currentScan = null;
     jdQuerySeq += 1;
+    clearTimeout(jdPartBarcodeTimer);
     jdRepairResult = null;
     saveLocalState();
     pushStateToServer(true);
