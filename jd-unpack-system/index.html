@@ -391,6 +391,88 @@
   .bar-value { font-size: 11px; font-weight: 700; color: var(--text-2); }
   .bar-label { font-size: 10px; color: var(--text-3); }
 
+  .category-tree { margin-top: 16px; min-height: 190px; }
+  .tree-root { position: relative; padding-left: 18px; }
+  .tree-root::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 14px;
+    bottom: 14px;
+    border-left: 2px solid var(--border);
+  }
+  .tree-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .tree-node b { color: var(--red); font-size: 17px; }
+  .tree-branches {
+    position: relative;
+    margin-left: 18px;
+    padding-left: 16px;
+    border-left: 2px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tree-branch {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .tree-branch::before {
+    content: "";
+    position: absolute;
+    left: -18px;
+    top: 50%;
+    width: 14px;
+    height: 2px;
+    background: var(--border);
+  }
+  .tree-branch-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tree-rank {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border-radius: 50%;
+    background: var(--red-light);
+    color: var(--red);
+    font-size: 11px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tree-name { font-size: 13px; font-weight: 800; }
+  .tree-count { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+  .tree-bar {
+    width: 120px;
+    height: 8px;
+    flex: 0 0 120px;
+    border-radius: 999px;
+    background: #eef1f4;
+    overflow: hidden;
+  }
+  .tree-bar i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--red), #f97316);
+  }
+
   .anomaly-list { display: flex; flex-direction: column; gap: 10px; }
   .anomaly-item {
     display: flex;
@@ -871,13 +953,12 @@
           <article class="panel">
             <header class="panel-head">
               <div>
-                <h2 class="panel-title">拆包进度</h2>
-                <p class="panel-sub" id="goalSub">按今日完成量统计</p>
+                <h2 class="panel-title">品类看板</h2>
+                <p class="panel-sub" id="categorySub">按今日完成量统计</p>
               </div>
-              <span class="goal-text" id="goalText">0 / 120</span>
+              <span class="goal-text" id="categoryTotal">0 件</span>
             </header>
-            <div class="goal-track"><div class="goal-fill" id="goalFill"></div></div>
-            <div class="chart" id="hourChart"></div>
+            <div class="category-tree" id="categoryTree"></div>
           </article>
           <article class="panel">
             <header class="panel-head">
@@ -1411,11 +1492,6 @@
       ? Math.round(doneToday.reduce((sum, p) => sum + (p.duration || 0), 0) / doneToday.length)
       : 0;
     const goal = state.settings.goal || 120;
-    const progress = Math.min(100, Math.round((doneToday.length / goal) * 100));
-
-    document.getElementById('goalText').textContent = `${doneToday.length} / ${goal}`;
-    document.getElementById('goalFill').style.width = `${progress}%`;
-    document.getElementById('goalSub').textContent = `今日完成 ${doneToday.length} 件，目标完成率 ${progress}%`;
 
     const stats = [
       { label: '今日已拆包', value: doneToday.length, delta: `目标 ${goal} 件`, icon: 'package', tone: 'red' },
@@ -1435,25 +1511,34 @@
       </article>
     `).join('');
 
-    const buckets = Array.from({ length: 8 }, (_, index) => {
-      const start = new Date(now);
-      start.setHours(now.getHours() - 7 + index, 0, 0, 0);
-      const end = new Date(start);
-      end.setHours(start.getHours() + 1, 0, 0, 0);
-      const count = doneToday.filter((p) => {
-        const time = new Date(p.unpackedAt).getTime();
-        return time >= start.getTime() && time < end.getTime();
-      }).length;
-      return { label: `${pad(start.getHours())}:00`, count };
+    const categoryMap = new Map();
+    doneToday.forEach((p) => {
+      const rawCategory = (p.jdRepair && (p.jdRepair.category || p.jdRepair.outerMainSkuThridCategory)) || p.category || '';
+      const category = cleanMeta(rawCategory);
+      const label = category === '--' ? '未分类' : category;
+      categoryMap.set(label, (categoryMap.get(label) || 0) + 1);
     });
-    const maxCount = Math.max(1, ...buckets.map((b) => b.count));
-    document.getElementById('hourChart').innerHTML = buckets.map((bucket) => `
-      <div class="chart-col">
-        <span class="bar-value">${bucket.count}</span>
-        <div class="bar-fill" style="height:${Math.max(8, Math.round((bucket.count / maxCount) * 86))}px"></div>
-        <span class="bar-label">${bucket.label}</span>
+    const categories = [...categoryMap.entries()].sort((a, b) => b[1] - a[1]);
+    const maxCategoryCount = Math.max(1, ...categories.map((item) => item[1]));
+    document.getElementById('categoryTotal').textContent = `${doneToday.length} 件`;
+    document.getElementById('categorySub').textContent = `今日完成 ${doneToday.length} 件，共 ${categories.length} 个品类`;
+    document.getElementById('categoryTree').innerHTML = `
+      <div class="tree-root">
+        <span class="tree-node">今日品类 <b>${doneToday.length}</b></span>
+        <div class="tree-branches">
+          ${categories.length ? categories.map(([category, count], index) => `
+            <div class="tree-branch">
+              <div class="tree-branch-main">
+                <span class="tree-rank">${index + 1}</span>
+                <strong class="tree-name">${escapeHtml(category)}</strong>
+                <span class="tree-count">${count} 件</span>
+              </div>
+              <div class="tree-bar"><i style="width:${Math.max(4, Math.round((count / maxCategoryCount) * 100))}%"></i></div>
+            </div>
+          `).join('') : '<div class="empty-row"><span style="color:var(--text-3)">今日暂无品类数据</span></div>'}
+        </div>
       </div>
-    `).join('');
+    `;
 
     const pendingAnomalies = state.anomalies.filter((a) => a.status === 'pending').slice(0, 4);
     document.getElementById('anomalyList').innerHTML = pendingAnomalies.length
