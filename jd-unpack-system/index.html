@@ -924,7 +924,10 @@
                 <h2 class="panel-title">品类看板</h2>
                 <p class="panel-sub" id="categorySub">按今日完成量统计</p>
               </div>
-              <span class="goal-text" id="categoryTotal">0 件</span>
+              <div style="display:flex;align-items:center;gap:10px">
+                <span class="goal-text" id="categoryTotal">0 件</span>
+                <button class="btn" id="exportCategoryBtn" type="button">导出XLSX</button>
+              </div>
             </header>
             <div class="category-chart" id="categoryTree"></div>
           </article>
@@ -1416,6 +1419,14 @@
     return text;
   }
 
+  function getParcelCategory(p) {
+    const jd = p.jdRepair || {};
+    const commit = (jd.detail && jd.detail.repairCommitInfoDto) || {};
+    const rawCategory = jd.category || jd.outerMainSkuThridCategory || jd.outerMainSkuThirdCategory || commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory || '';
+    const category = cleanMeta(rawCategory);
+    return category === '--' ? '未分类' : category;
+  }
+
   function apiUrl(path) {
     const base = DEFAULT_API_BASE.replace(/\/+$/, '');
     return base + path;
@@ -1484,11 +1495,7 @@
 
     const categoryMap = new Map();
     doneToday.forEach((p) => {
-      const jd = p.jdRepair || {};
-      const commit = (jd.detail && jd.detail.repairCommitInfoDto) || {};
-      const rawCategory = jd.category || jd.outerMainSkuThridCategory || jd.outerMainSkuThirdCategory || commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory || '';
-      const category = cleanMeta(rawCategory);
-      const label = category === '--' ? '未分类' : category;
+      const label = getParcelCategory(p);
       categoryMap.set(label, (categoryMap.get(label) || 0) + 1);
     });
     const categories = [...categoryMap.entries()].sort((a, b) => b[1] - a[1]);
@@ -1535,6 +1542,41 @@
         </tr>
       `).join('')
       : '<tr class="empty-row"><td colspan="6">暂无今日拆包记录</td></tr>';
+  }
+
+  async function exportCategoryBoard() {
+    try {
+      const now = new Date();
+      const todayCounts = new Map();
+      const totalCounts = new Map();
+      state.parcels.forEach((p) => {
+        const label = getParcelCategory(p);
+        totalCounts.set(label, (totalCounts.get(label) || 0) + 1);
+        if (p.status === 'done' && isSameDay(p.unpackedAt, now)) {
+          todayCounts.set(label, (todayCounts.get(label) || 0) + 1);
+        }
+      });
+      const rows = [...totalCounts.keys()]
+        .sort((a, b) => (totalCounts.get(b) || 0) - (totalCounts.get(a) || 0))
+        .map((category) => ({
+          category,
+          todayCount: todayCounts.get(category) || 0,
+          totalCount: totalCounts.get(category) || 0
+        }));
+      const response = await fetch(apiUrl('/api/export-categories'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: AUTH_USER, rows })
+      });
+      const data = await response.json();
+      if (data && data.ok) {
+        toast(`已导出到桌面：${data.path}`, 'success');
+      } else {
+        toast(data && data.error ? data.error : '导出失败', 'error');
+      }
+    } catch (error) {
+      toast('导出失败：请确认主电脑桥接服务已启动', 'error');
+    }
   }
 
   function renderScan() {
@@ -2657,6 +2699,7 @@
     await refreshSharedState();
     renderParcels();
   });
+  document.getElementById('exportCategoryBtn').addEventListener('click', exportCategoryBoard);
   document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
 
