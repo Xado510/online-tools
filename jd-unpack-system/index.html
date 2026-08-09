@@ -1476,7 +1476,7 @@
     document.getElementById('recentTbody').innerHTML = recent.length
       ? recent.map((p) => `
         <tr class="clickable" data-detail="${p.id}">
-          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong><span>${escapeHtml(cleanMeta(p.order))}</span></div></td>
+          <td><div class="parcel-main"><strong>${escapeHtml(p.isPerformingQuery ? cleanMeta(p.jdRepair && p.jdRepair.expressNo) : cleanMeta(p.tracking))}</strong><span>${escapeHtml(cleanMeta(p.order))}</span></div></td>
           <td><div class="parcel-main"><strong>${escapeHtml(cleanMeta(p.product))}</strong><span>${escapeHtml(cleanMeta(p.sku))}</span></div></td>
           <td>${escapeHtml(p.operator)}</td>
           <td>${formatTime(p.unpackedAt)}</td>
@@ -1510,8 +1510,8 @@
     document.getElementById('scanStatusLine').innerHTML = statusLine;
 
     document.getElementById('scanMeta').innerHTML = [
-      ['运单号', p.tracking],
-      ['履约单号', jd ? cleanMeta(jd.performingOrderNo || p.order) : cleanMeta(p.order)],
+      ['运单号', p.isPerformingQuery ? cleanMeta(jd && jd.expressNo) : cleanMeta(p.tracking)],
+      ['履约单号', p.isPerformingQuery ? cleanMeta(p.tracking) : cleanMeta(jd && (jd.performingOrderNo || p.order))],
       ['主商品三级类目', jd ? cleanMeta(jd.category || p.category) : cleanMeta(p.category)],
       ['门店名称', jd ? cleanMeta(jd.shopName || p.supplier) : cleanMeta(p.supplier)],
       ['履约模式', jd ? formatPerformingModel(jd.performingModel) : '--'],
@@ -1539,7 +1539,7 @@
     if (data && data.ok && data.found && currentScan && currentScan.tracking.toUpperCase() === code.toUpperCase()) {
       const commit = (data.detail && data.detail.repairCommitInfoDto) || {};
       Object.assign(currentScan, {
-        tracking: data.expressNo || currentScan.tracking,
+        tracking: currentScan.isPerformingQuery ? currentScan.tracking : (data.expressNo || currentScan.tracking),
         product: data.productName || commit.outerMainSkuName || commit.outerSkuName || currentScan.product,
         sku: data.sku || commit.outerSku || currentScan.sku,
         category: data.category || currentScan.category,
@@ -1920,6 +1920,11 @@
     return /^[A-Z0-9]{6,}$/.test(first) ? first : code;
   }
 
+  function isPerformingCode(value) {
+    const code = String(value || '').trim().toUpperCase();
+    return /^\d+$/.test(code) || (code.startsWith('JD') && !code.startsWith('JDX') && /^\d+$/.test(code.slice(2)));
+  }
+
   function lookupTracking(code) {
     const normalized = normalizeScanCode(code);
     if (!normalized) {
@@ -1928,6 +1933,7 @@
     }
     const input = document.getElementById('trackingInput');
     if (input) input.value = normalized;
+    const performingInput = isPerformingCode(normalized);
     if (localStorage.getItem('jd_auto_start') !== '0') {
       queryJdRepairAutoStart(normalized);
     } else {
@@ -1952,7 +1958,7 @@
         toast('该包裹已处理，可查看详情');
         return;
       }
-      currentScan = { ...existing, __index: existingIndex };
+      currentScan = { ...existing, __index: existingIndex, isPerformingQuery: performingInput };
       renderScan();
       return;
     }
@@ -1980,6 +1986,7 @@
       condition: '完好',
       note: '',
       duration: 0,
+      isPerformingQuery: performingInput,
       __index: -1
     };
     if (!demo) toast('未匹配到预置商品，按待核对处理', 'error');
@@ -2018,6 +2025,7 @@
       performingModel: currentScan.performingModel || null,
       partBarcode: currentScan.partBarcode || null,
       jdRepair: currentScan.jdRepair || null,
+      isPerformingQuery: currentScan.isPerformingQuery || false,
       status: hasAnomaly ? 'anomaly' : 'done',
       operator: state.settings.operator,
       station: state.settings.station,
@@ -2114,7 +2122,7 @@
     const detailJd = p.jdRepair && p.jdRepair.ok && p.jdRepair.found ? p.jdRepair : null;
     const body = `
       <div class="detail-grid">
-        ${[['运单号', p.tracking], ['履约单号', detailJd ? cleanMeta(detailJd.performingOrderNo || p.order) : cleanMeta(p.order)], ['主商品三级类目', detailJd ? cleanMeta(detailJd.category || p.category) : cleanMeta(p.category)], ['门店名称', detailJd ? cleanMeta(detailJd.shopName || p.supplier) : cleanMeta(p.supplier)], ['履约模式', detailJd ? formatPerformingModel(detailJd.performingModel) : '--'], ['备件条码', detailJd ? cleanMeta(detailJd.partBarcode || p.partBarcode) : cleanMeta(p.partBarcode)], ['操作员', p.operator], ['更新时间', formatTime(p.unpackedAt || p.createdAt)]].map(([label, value]) => `
+        ${[['运单号', p.isPerformingQuery ? cleanMeta(detailJd && detailJd.expressNo) : cleanMeta(p.tracking)], ['履约单号', p.isPerformingQuery ? cleanMeta(p.tracking) : cleanMeta(detailJd && (detailJd.performingOrderNo || p.order))], ['主商品三级类目', detailJd ? cleanMeta(detailJd.category || p.category) : cleanMeta(p.category)], ['门店名称', detailJd ? cleanMeta(detailJd.shopName || p.supplier) : cleanMeta(p.supplier)], ['履约模式', detailJd ? formatPerformingModel(detailJd.performingModel) : '--'], ['备件条码', detailJd ? cleanMeta(detailJd.partBarcode || p.partBarcode) : cleanMeta(p.partBarcode)], ['操作员', p.operator], ['更新时间', formatTime(p.unpackedAt || p.createdAt)]].map(([label, value]) => `
           <div class="meta-item"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>
         `).join('')}
       </div>
@@ -2306,7 +2314,7 @@
     document.getElementById('parcelTbody').innerHTML = list.length
       ? list.map((p) => `
         <tr class="clickable" data-detail="${p.id}">
-          <td><div class="parcel-main"><strong>${escapeHtml(p.tracking)}</strong></div></td>
+          <td><div class="parcel-main"><strong>${escapeHtml(p.isPerformingQuery ? cleanMeta(p.jdRepair && p.jdRepair.expressNo) : cleanMeta(p.tracking))}</strong></div></td>
           <td>${escapeHtml(cleanMeta(p.order))}</td>
           <td><div class="parcel-main"><strong>${escapeHtml(cleanMeta(p.product))}</strong><span>${escapeHtml(cleanMeta(p.sku))} · ${escapeHtml(cleanMeta(p.supplier))}</span></div></td>
           <td>${statusBadge(p.status)}</td>
