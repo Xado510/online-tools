@@ -391,86 +391,41 @@
   .bar-value { font-size: 11px; font-weight: 700; color: var(--text-2); }
   .bar-label { font-size: 10px; color: var(--text-3); }
 
-  .category-tree { margin-top: 16px; min-height: 190px; }
-  .tree-root { position: relative; padding-left: 18px; }
-  .tree-root::before {
-    content: "";
-    position: absolute;
-    left: 7px;
-    top: 14px;
-    bottom: 14px;
-    border-left: 2px solid var(--border);
+  .category-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 220px;
+    margin-top: 16px;
+    overflow-x: auto;
+    padding-bottom: 4px;
   }
-  .tree-node {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    font-size: 13px;
-    font-weight: 800;
-  }
-  .tree-node b { color: var(--red); font-size: 17px; }
-  .tree-branches {
-    position: relative;
-    margin-left: 18px;
-    padding-left: 16px;
-    border-left: 2px solid var(--border);
+  .category-col {
+    flex: 1 0 72px;
+    min-width: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-  }
-  .tree-branch {
-    position: relative;
-    display: flex;
+    justify-content: flex-end;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface-2);
+    gap: 7px;
   }
-  .tree-branch::before {
-    content: "";
-    position: absolute;
-    left: -18px;
-    top: 50%;
-    width: 14px;
-    height: 2px;
-    background: var(--border);
+  .category-count { font-size: 12px; font-weight: 800; color: var(--red); }
+  .category-bar {
+    width: 100%;
+    max-width: 44px;
+    min-height: 4px;
+    border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, var(--red), #fca5a5);
   }
-  .tree-branch-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .tree-rank {
-    width: 22px;
-    height: 22px;
-    flex: 0 0 22px;
-    border-radius: 50%;
-    background: var(--red-light);
-    color: var(--red);
-    font-size: 11px;
-    font-weight: 800;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .tree-name { font-size: 13px; font-weight: 800; }
-  .tree-count { font-size: 12px; color: var(--text-2); white-space: nowrap; }
-  .tree-bar {
-    width: 120px;
-    height: 8px;
-    flex: 0 0 120px;
-    border-radius: 999px;
-    background: #eef1f4;
+  .category-label {
+    max-width: 70px;
     overflow: hidden;
-  }
-  .tree-bar i {
-    display: block;
-    height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--red), #f97316);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-2);
   }
 
   .anomaly-list { display: flex; flex-direction: column; gap: 10px; }
@@ -958,7 +913,7 @@
               </div>
               <span class="goal-text" id="categoryTotal">0 件</span>
             </header>
-            <div class="category-tree" id="categoryTree"></div>
+            <div class="category-chart" id="categoryTree"></div>
           </article>
           <article class="panel">
             <header class="panel-head">
@@ -1524,23 +1479,15 @@
     const maxCategoryCount = Math.max(1, ...categories.map((item) => item[1]));
     document.getElementById('categoryTotal').textContent = `${doneToday.length} 件`;
     document.getElementById('categorySub').textContent = `今日完成 ${doneToday.length} 件，共 ${categories.length} 个品类`;
-    document.getElementById('categoryTree').innerHTML = `
-      <div class="tree-root">
-        <span class="tree-node">今日品类 <b>${doneToday.length}</b></span>
-        <div class="tree-branches">
-          ${categories.length ? categories.map(([category, count], index) => `
-            <div class="tree-branch">
-              <div class="tree-branch-main">
-                <span class="tree-rank">${index + 1}</span>
-                <strong class="tree-name">${escapeHtml(category)}</strong>
-                <span class="tree-count">${count} 件</span>
-              </div>
-              <div class="tree-bar"><i style="width:${Math.max(4, Math.round((count / maxCategoryCount) * 100))}%"></i></div>
-            </div>
-          `).join('') : '<div class="empty-row"><span style="color:var(--text-3)">今日暂无品类数据</span></div>'}
+    document.getElementById('categoryTree').innerHTML = categories.length
+      ? `<div class="category-chart">${categories.map(([category, count]) => `
+        <div class="category-col" title="${escapeHtml(category)}">
+          <span class="category-count">${count}</span>
+          <div class="category-bar" style="height:${Math.max(6, Math.round((count / maxCategoryCount) * 170))}px"></div>
+          <span class="category-label">${escapeHtml(category)}</span>
         </div>
-      </div>
-    `;
+      `).join('')}</div>`
+      : '<div class="empty-row"><span style="color:var(--text-3)">今日暂无品类数据</span></div>';
 
     const pendingAnomalies = state.anomalies.filter((a) => a.status === 'pending').slice(0, 4);
     document.getElementById('anomalyList').innerHTML = pendingAnomalies.length
