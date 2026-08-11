@@ -1125,6 +1125,7 @@
   const AUTH_KEY = 'jd_unpack_auth';
   const LAST_CLEARED_KEY = 'jd_last_cleared_at';
   const DEFAULT_API_BASE = 'https://acrylic-licensing-occurred-leu.trycloudflare.com';
+  let RUNTIME_API_BASE = DEFAULT_API_BASE;
   const PART_BARCODE_INTERVAL_MS = 3000;
   const PART_BARCODE_MAX_ATTEMPTS = 5;
   function getClientId() {
@@ -1314,6 +1315,16 @@
     }
   }
 
+  async function refreshBridgeConfig() {
+    try {
+      const response = await fetch('https://xado510.github.io/online-tools/jd-unpack-system/bridge-status.json?t=' + Date.now(), { cache: 'no-store' });
+      const data = await response.json();
+      if (data && data.apiBase && /^https:\/\/[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com$/.test(data.apiBase)) {
+        RUNTIME_API_BASE = data.apiBase.replace(/\/+$/, '');
+      }
+    } catch (error) {}
+  }
+
   async function refreshSharedState() {
     try {
       const response = await fetch(apiUrl(`/api/state?account=${encodeURIComponent(AUTH_USER)}`));
@@ -1428,12 +1439,12 @@
   }
 
   function apiUrl(path) {
-    const base = DEFAULT_API_BASE.replace(/\/+$/, '');
+    const base = RUNTIME_API_BASE.replace(/\/+$/, '');
     return base + path;
   }
 
   function bridgeOrigin() {
-    const base = DEFAULT_API_BASE.replace(/\/+$/, '');
+    const base = RUNTIME_API_BASE.replace(/\/+$/, '');
     return base || location.origin;
   }
 
@@ -2770,14 +2781,15 @@
     if (rightPupil) rightPupil.setAttribute('cx', 105 + shiftX);
     if (rightPupil) rightPupil.setAttribute('cy', 57 + shiftY);
   });
-  if (applyAuthGate()) {
-    refreshSharedState();
-    setInterval(refreshSharedState, 10000);
-  }
-
-  hydrateIcons();
-  applyHash();
-  renderAll();
+  refreshBridgeConfig().then(() => {
+    if (applyAuthGate()) {
+      refreshSharedState();
+      setInterval(refreshSharedState, 10000);
+    }
+    hydrateIcons();
+    applyHash();
+    renderAll();
+  });
 </script>
 </body>
 </html>
