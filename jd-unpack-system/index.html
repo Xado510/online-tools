@@ -2398,6 +2398,20 @@
     }
   }
 
+  function showCookieTokenGuide() {
+    const body = `
+      <div class="disclaimer-content">
+        <h3>京东 Cookie</h3>
+        <p>打开京东维修页面并登录，按 F12 打开 Network，找到 baozang-out.jd.com 请求，复制 Request Headers 里的完整 Cookie，粘贴到设置中的 Cookie 框。</p>
+        <h3>展翅 Token</h3>
+        <p>打开展翅页面并登录，复制 pin 或 X-Access-Token，粘贴到设置中的 Token 框。</p>
+        <p>保存后直接在扫码查询输入快递单号即可。</p>
+      </div>
+    `;
+    openModal('Cookie/Token 获取说明', body, '<button class="btn btn-primary" type="button" id="modalOk">关闭</button>');
+    document.getElementById('modalOk').addEventListener('click', closeModal);
+  }
+
   function openJdSettings() {
     const cookie = localStorage.getItem('jd_cookie') || '';
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
@@ -2422,9 +2436,9 @@
         <input class="search-input" id="jdBarPrinterPath" value="${escapeHtml(barPrinterPath)}" placeholder="填写 BarPrinter.exe 的完整路径">
         <button class="btn" id="jdFindPrinterBtn" type="button">自动查找</button>
       </div>
-      <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
+      <div class="detail-note" style="margin-top:14px">Cookie 请从京东维修页面 F12 Network 中复制 baozang-out.jd.com 请求头的完整 Cookie；Token 请从展翅页面复制。</div>
       <div class="action-row" style="margin-top:14px">
-        <button class="btn" id="jdCopySnippet" type="button">京东页面查询命令</button>
+        <button class="btn" id="jdCopySnippet" type="button">Cookie/Token 获取说明</button>
         <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
       </div>
@@ -2432,13 +2446,7 @@
     openModal('京东接口设置', body, '<button class="btn btn-primary" type="button" id="jdSaveBtn">保存</button>');
     document.getElementById('jdSaveBtn').addEventListener('click', saveJdSettings);
     document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
-    document.getElementById('jdCopySnippet').addEventListener('click', async () => {
-      try {
-        await copyText(buildCloudJdSnippet(), '命令已复制，请在京东维修页面执行并输入快递单号');
-      } catch (err) {
-        toast('复制失败，请手动复制', 'error');
-      }
-    });
+    document.getElementById('jdCopySnippet').addEventListener('click', showCookieTokenGuide);
     document.getElementById('jdResetBtn').addEventListener('click', () => {
       closeModal();
       resetDemo();
