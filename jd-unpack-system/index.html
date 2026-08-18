@@ -1878,9 +1878,10 @@
       '  let shopCode = "";',
       '  try { const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:{"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":appCode},body:"{}"}).then(r => r.json()); if (shops && shops.values && shops.values[0]) shopCode = shops.values[0].code || ""; } catch (e) {}',
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
-      '  const data = encodeURIComponent(JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId}));',
+      '  const plain = JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId});',
+      '  const data = encodeURIComponent(plain);',
       '  const win = window.open(bridge + "/api/repair/set-digital-cookie?data=" + data, "_blank");',
-      '  if (win) { alert("已在新标签页提交配置，看到 OK 后回到拆包系统"); } else { alert("浏览器阻止了新窗口，请手动把 Cookie 粘贴到设置中"); }',
+      '  if (win) { alert("已在新标签页提交配置，看到 OK 后回到拆包系统"); } else { await navigator.clipboard.writeText(plain); alert("浏览器拦截了新窗口，配置 JSON 已复制，请回到拆包系统设置中粘贴保存"); }',
       '})();'
     ].join('\n');
   }
@@ -1894,9 +1895,10 @@
       '  const token = m ? m[1] : "";',
       '  if (!token) { alert("未找到 pin，请确认已登录 jdservice.jdl.com"); return; }',
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
-      '  const data = encodeURIComponent(JSON.stringify({jdlToken:token,clientId}));',
+      '  const plain = JSON.stringify({jdlToken:token,clientId});',
+      '  const data = encodeURIComponent(plain);',
       '  const win = window.open(bridge + "/api/repair/set-jdl-token?data=" + data, "_blank");',
-      '  if (win) { alert("已在新标签页提交 Token，看到 OK 后回到拆包系统"); } else { alert("浏览器阻止了新窗口，请手动把 Token 粘贴到设置中"); }',
+      '  if (win) { alert("已在新标签页提交 Token，看到 OK 后回到拆包系统"); } else { await navigator.clipboard.writeText(plain); alert("浏览器拦截了新窗口，配置 JSON 已复制，请回到拆包系统设置中粘贴保存"); }',
       '})();'
     ].join('\n');
   }
@@ -2333,11 +2335,47 @@
     document.getElementById('modalOk').addEventListener('click', closeModal);
   }
 
+  function showCopyCommand(text) {
+    const body = `
+      <textarea style="width:100%;height:180px;font-family:monospace;font-size:12px" readonly>${escapeHtml(text)}</textarea>
+      <div class="detail-note" style="margin-top:10px">请手动全选复制，再到京东/展翅页面 F12 控制台执行。</div>
+    `;
+    openModal('抓取命令', body, '<button class="btn btn-primary" type="button" id="modalOk">关闭</button>');
+    document.getElementById('modalOk').addEventListener('click', closeModal);
+  }
+
+  async function copyText(text, successMessage) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        toast(successMessage);
+        return;
+      }
+    } catch (err) {}
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } catch (err) {}
+    document.body.removeChild(area);
+    if (copied) {
+      toast(successMessage);
+    } else {
+      showCopyCommand(text);
+    }
+  }
+
   function openJdSettings() {
     const cookie = localStorage.getItem('jd_cookie') || '';
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     const barPrinterPath = localStorage.getItem('jd_bar_printer_path') || '';
+    const cloudJson = localStorage.getItem('jd_cloud_json') || '';
     const body = `
       <label class="field-label" for="jdCookie">Cookie</label>
       <textarea id="jdCookie" rows="5" placeholder="粘贴京东请求头中的 Cookie">${escapeHtml(cookie)}</textarea>
@@ -2345,6 +2383,8 @@
       <input class="search-input" id="jdJdlToken" value="${escapeHtml(jdlToken)}" placeholder="粘贴 jdservice.jdl.com 的 pin / X-Access-Token">
       <label class="field-label" for="jdJdlCookie">京东物流 Cookie（可选）</label>
       <textarea id="jdJdlCookie" rows="3" placeholder="粘贴 jdservice.jdl.com 请求头中的完整 Cookie">${escapeHtml(jdlCookie)}</textarea>
+      <label class="field-label" for="jdCloudJson">云端自动获取结果（可选）</label>
+      <textarea id="jdCloudJson" rows="3" placeholder="浏览器拦截新窗口时，将自动复制的内容粘贴到这里保存">${escapeHtml(cloudJson)}</textarea>
       <label class="field-label" for="jdAutoStart" style="display:flex;align-items:center;gap:8px;margin-top:12px">
         <input type="checkbox" id="jdAutoStart" ${localStorage.getItem('jd_auto_start') !== '0' ? 'checked' : ''}>
         查询后自动开始接机并同步备件条码
@@ -2367,16 +2407,14 @@
     document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
     document.getElementById('jdCopySnippet').addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(buildJdPageSnippet());
-        toast('京东页面抓取命令已复制');
+        await copyText(buildCloudJdSnippet(), '京东抓取命令已复制');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
     });
     document.getElementById('jdAutoPinCmd').addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(buildJdlTokenSnippet());
-        toast('自动配置物流Token命令已复制');
+        await copyText(buildCloudJdlTokenSnippet(), '展翅 Token 命令已复制');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
@@ -2397,6 +2435,19 @@
     localStorage.setItem('jd_jdl_cookie', document.getElementById('jdJdlCookie').value.trim());
     localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
     localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
+    const cloudJson = document.getElementById('jdCloudJson').value.trim();
+    localStorage.setItem('jd_cloud_json', cloudJson);
+    if (cloudJson) {
+      try {
+        const parsed = JSON.parse(cloudJson);
+        if (parsed.cookie) localStorage.setItem('jd_cookie', parsed.cookie);
+        if (parsed.userId) localStorage.setItem('jd_userId', parsed.userId);
+        if (parsed.appCode) localStorage.setItem('jd_appCode', parsed.appCode);
+        if (parsed.shopCode) localStorage.setItem('jd_shopCode', parsed.shopCode);
+        if (parsed.clientId) localStorage.setItem('jd_client_id', parsed.clientId);
+        if (parsed.jdlToken) localStorage.setItem('jd_jdl_token', parsed.jdlToken);
+      } catch (err) {}
+    }
     closeModal();
     toast('京东接口设置已保存');
   }
