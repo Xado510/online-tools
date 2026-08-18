@@ -1872,18 +1872,44 @@
     return [
       '(async () => {',
       '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const expressNo = prompt("请输入京东快递单号");',
+      '  if (!expressNo) return;',
       '  const userInfo = localStorage.getItem("userInfo") || "";',
       '  const userId = (() => { try { return userInfo ? encodeURIComponent(JSON.parse(userInfo)) : ""; } catch (e) { return encodeURIComponent(userInfo); } })();',
-      '  const appCode = localStorage.getItem("systemCode") || "";',
+      '  const appCode = localStorage.getItem("systemCode") || (document.cookie.match(/(?:^|; )systemCode=([^;]+)/) || [])[1] || "";',
+      '  const headers = {"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":appCode};',
       '  let shopCode = "";',
-      '  try { const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:{"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":appCode},body:"{}"}).then(r => r.json()); if (shops && shops.values && shops.values[0]) shopCode = shops.values[0].code || ""; } catch (e) {}',
-      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  let facilitatorCode = "";',
+      '  let shopName = "";',
+      '  try { const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:headers,body:"{}"}).then(r => r.json()); const shopRow = shops && shops.success && shops.values && shops.values[0] ? shops.values[0] : {}; shopCode = shopRow.code || ""; facilitatorCode = shopRow.facilitatorCode || ""; shopName = shopRow.shopName || shopRow.name || ""; } catch (e) {}',
+      '  const query = {expressNo: expressNo.toUpperCase()};',
+      '  if (shopCode) query.shopCode = shopCode;',
+      '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({pageIndex:1,pageSize:10,query:query})}).then(r => r.json());',
+      '  if (!list.success || !list.values || !list.values.length) { alert("京东查询失败：" + (list.msg || list.error || "NotLogin")); return; }',
+      '  const row = list.values[0];',
+      '  const detail = await fetch("https://baozang-out.jd.com/serviceOrder/serviceOrderDetail", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({serviceOrderNo:row.serviceOrderNo,facilitatorCode:row.facilitatorCode || facilitatorCode,shopCode:row.shopCode || shopCode,performingOrderState:row.serviceState || row.performingOrderState})}).then(r => r.json());',
+      '  if (!detail.success) { alert("详情查询失败：" + (detail.msg || detail.error || "NotLogin")); return; }',
+      '  const commit = (detail.value || {}).repairCommitInfoDto || {};',
+      '  const receive = (detail.value || {}).receiveMaintainOrderInfoDto || {};',
+      '  const expressList = receive.expressInfoDtoList || [];',
+      '  const expressNoValue = row.expressNo || receive.expressNo || (expressList[0] && expressList[0].expressNo) || expressNo.toUpperCase();',
+      '  const perfMap = {"01":"维修","REPAIR":"维修","02":"换新","CHANGE_NEW":"换新","05":"补贴","SUBSIDY":"补贴","08":"退货","SALES_RETURN":"退货","10":"增值服务","ADD_VALUE":"增值服务","11":"服务中台","SERVICE_PLATFORM_THIRD_PART_RIGHT":"服务中台"};',
+      '  const performingModel = commit.performanceTypeEnum === "ADD_VALUE" || commit.performanceTypeEnum === "10" ? (commit.leafPerformingModelName || "增值服务") : (perfMap[commit.performanceTypeEnum] || commit.leafPerformingModelName || commit.performanceTypeEnum || "未知状态");',
+      '  const result = {ok:true,found:true,tracking:expressNo.toUpperCase(),performingOrderNo:commit.performingOrderNo || row.performingOrderNo || row.performingNo,serviceOrderNo:row.serviceOrderNo || commit.serviceOrderNo,category:commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory,expressNo:expressNoValue,productName:commit.outerMainSkuName || commit.outerSkuName || row.outerMainSkuName || row.outerSkuName,sku:commit.outerSku || row.outerSku,brand:commit.outerMainSkuBrand,model:commit.mainSkuModel,performingModel:performingModel,shopName:shopName,detail:detail.value};',
       '  const m = document.cookie.match(/(?:^|; )pin=([^;]+)/);',
       '  const jdlToken = m ? m[1] : "";',
-      '  const plain = JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId,jdlToken});',
-      '  const data = encodeURIComponent(plain);',
-      '  location.href = bridge + "/api/repair/set-digital-cookie?data=" + data;',
-      '  // 页面跳到 OK 后按返回，回到拆包系统重新查询',
+      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  const payload = JSON.stringify({tracking:expressNo.toUpperCase(),result:result,jdlToken,clientId});',
+      '  const form = document.createElement("form");',
+      '  form.method = "POST";',
+      '  form.action = bridge + "/api/repair/import";',
+      '  const input = document.createElement("input");',
+      '  input.type = "hidden";',
+      '  input.name = "data";',
+      '  input.value = payload;',
+      '  form.appendChild(input);',
+      '  document.body.appendChild(form);',
+      '  form.submit();',
       '})();'
     ].join('\n');
   }
@@ -2398,7 +2424,7 @@
       </div>
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
-        <button class="btn" id="jdCopySnippet" type="button">一键获取京东Cookie/Token</button>
+        <button class="btn" id="jdCopySnippet" type="button">京东页面查询命令</button>
         <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
       </div>
@@ -2408,7 +2434,7 @@
     document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
     document.getElementById('jdCopySnippet').addEventListener('click', async () => {
       try {
-        await copyText(buildCloudJdSnippet(), '命令已复制，执行后会同时保存 Cookie 和 Token');
+        await copyText(buildCloudJdSnippet(), '命令已复制，请在京东维修页面执行并输入快递单号');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
