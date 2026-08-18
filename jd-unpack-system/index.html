@@ -2026,6 +2026,13 @@
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     jdRepairResult = { loading: true, tracking: code };
     try {
+      if (jdlToken) {
+        await fetch(apiUrl('/api/repair/set-jdl-token'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jdlToken, jdlCookie, clientId: getClientId() })
+        });
+      }
       const response = await fetch(apiUrl('/api/repair/query'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2063,6 +2070,13 @@
     jdRepairResult = { loading: true, tracking: code };
     try {
       toast('正在自动接机并等待备件条码生成，请稍候', '');
+      if (jdlToken) {
+        await fetch(apiUrl('/api/repair/set-jdl-token'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jdlToken, jdlCookie, clientId: getClientId() })
+        });
+      }
       const response = await fetch(apiUrl('/api/repair/auto-start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
