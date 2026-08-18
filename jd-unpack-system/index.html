@@ -2489,12 +2489,18 @@
   }
 
   function saveJdSettings() {
-    localStorage.setItem('jd_cookie', document.getElementById('jdCookie').value.trim());
-    localStorage.setItem('jd_userId', document.getElementById('jdUserId').value.trim());
-    localStorage.setItem('jd_appCode', document.getElementById('jdAppCode').value.trim());
-    localStorage.setItem('jd_shopCode', document.getElementById('jdShopCode').value.trim());
-    localStorage.setItem('jd_jdl_token', document.getElementById('jdJdlToken').value.trim());
-    localStorage.setItem('jd_jdl_cookie', document.getElementById('jdJdlCookie').value.trim());
+    const savedCookie = document.getElementById('jdCookie').value.trim();
+    const savedUserId = document.getElementById('jdUserId').value.trim();
+    const savedAppCode = document.getElementById('jdAppCode').value.trim();
+    const savedShopCode = document.getElementById('jdShopCode').value.trim();
+    const savedJdlToken = document.getElementById('jdJdlToken').value.trim();
+    const savedJdlCookie = document.getElementById('jdJdlCookie').value.trim();
+    localStorage.setItem('jd_cookie', savedCookie);
+    localStorage.setItem('jd_userId', savedUserId);
+    localStorage.setItem('jd_appCode', savedAppCode);
+    localStorage.setItem('jd_shopCode', savedShopCode);
+    localStorage.setItem('jd_jdl_token', savedJdlToken);
+    localStorage.setItem('jd_jdl_cookie', savedJdlCookie);
     localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
     localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
     const cloudJson = document.getElementById('jdCloudJson').value.trim();
@@ -2509,6 +2515,26 @@
         if (parsed.clientId) localStorage.setItem('jd_client_id', parsed.clientId);
         if (parsed.jdlToken) localStorage.setItem('jd_jdl_token', parsed.jdlToken);
       } catch (err) {}
+    }
+    if (savedJdlToken) {
+      fetch(apiUrl('/api/repair/set-jdl-token'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jdlToken: savedJdlToken, clientId: getClientId() })
+      }).catch(() => {});
+    }
+    if (savedCookie) {
+      fetch(apiUrl('/api/repair/set-digital-cookie'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cookie: savedCookie,
+          userId: savedUserId,
+          appCode: savedAppCode,
+          shopCode: savedShopCode,
+          clientId: getClientId()
+        })
+      }).catch(() => {});
     }
     closeModal();
     toast('京东接口设置已保存');
