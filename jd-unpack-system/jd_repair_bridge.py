@@ -1234,6 +1234,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "appCode": str(payload.get("appCode", "") or "").strip(),
                 "shopCode": str(payload.get("shopCode", "") or "").strip(),
             }
+            jdl_token = str(payload.get("jdlToken", "") or "").strip()
+            if jdl_token:
+                global JDL_TOKEN
+                JDL_TOKEN = jdl_token
+                if client_id:
+                    CLIENT_JDL_TOKENS[client_id] = jdl_token
             DIGITAL_CONFIG.update(config_updates)
             if client_id:
                 CLIENT_CONFIGS[client_id] = {
@@ -1254,7 +1260,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
             client_id = str(payload.get("clientId", "") or "").strip()
             token = str(payload.get("jdlToken", "") or "").strip()
             if token:
-                global JDL_TOKEN
                 JDL_TOKEN = token
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = token
