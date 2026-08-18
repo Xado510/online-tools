@@ -40,6 +40,7 @@ JDL_TOKEN = ""
 LAST_BARCODE_ERROR = ""
 DIGITAL_CONFIG = {"cookie": "", "userId": "", "appCode": "", "shopCode": ""}
 DIGITAL_CONFIG_FILE = os.path.join(ROOT_DIR, "digital_config.json")
+JDL_TOKEN_FILE = os.path.join(ROOT_DIR, "jdl_token.json")
 CLIENT_CONFIGS = {}
 CLIENT_JDL_TOKENS = {}
 SHARED_STATES = {}
@@ -85,6 +86,25 @@ def save_digital_config():
     try:
         with open(DIGITAL_CONFIG_FILE, "w", encoding="utf-8") as handle:
             json.dump(DIGITAL_CONFIG, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def load_jdl_token():
+    global JDL_TOKEN
+    try:
+        with open(JDL_TOKEN_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            JDL_TOKEN = str(data.get("jdlToken") or "").strip()
+    except Exception:
+        pass
+
+
+def save_jdl_token():
+    try:
+        with open(JDL_TOKEN_FILE, "w", encoding="utf-8") as handle:
+            json.dump({"jdlToken": JDL_TOKEN}, handle, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -1254,6 +1274,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 JDL_TOKEN = jdl_token
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = jdl_token
+                save_jdl_token()
             DIGITAL_CONFIG.update(config_updates)
             if client_id:
                 CLIENT_CONFIGS[client_id] = {
@@ -1277,6 +1298,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 JDL_TOKEN = token
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = token
+                save_jdl_token()
             self._send_json(200, {"ok": True, "message": "OK"})
             return
         if parsed.path == "/api/repair/latest":
@@ -1483,6 +1505,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             client_id = str(payload.get("clientId", "") or "").strip()
             token = str(payload.get("jdlToken", "") or "").strip()
             JDL_TOKEN = token
+            save_jdl_token()
             if client_id:
                 CLIENT_JDL_TOKENS[client_id] = token
             self._send_json(
@@ -1519,6 +1542,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 client_id = str(payload.get("clientId", "") or "").strip()
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = jdl_token
+                save_jdl_token()
             LATEST_RESULTS[tracking] = result
             self._send_json(200, {"ok": True, "tracking": tracking})
             return
@@ -1651,6 +1675,7 @@ def main():
     for ip in local_ips:
         print(f"LAN: http://{ip}:{port}", flush=True)
     load_digital_config()
+    load_jdl_token()
     load_shared_states()
     server.serve_forever()
 
