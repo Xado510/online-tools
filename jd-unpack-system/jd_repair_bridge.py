@@ -750,6 +750,8 @@ def query_repair(
         user_id = extract_cookie_value(cookie, "pin")
     if not app_code:
         app_code = extract_cookie_value(cookie, "systemCode")
+    if not shop_code:
+        shop_code = extract_cookie_value(cookie, "shopCode")
     facilitator_code = ""
     shop_name = ""
     shops = call_jd(
@@ -1262,11 +1264,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "data 不是合法 JSON"})
                 return
             client_id = str(payload.get("clientId", "") or "").strip()
+            cookie_text = str(payload.get("cookie", "") or "").strip()
             config_updates = {
-                "cookie": str(payload.get("cookie", "") or "").strip(),
-                "userId": str(payload.get("userId", "") or "").strip(),
-                "appCode": str(payload.get("appCode", "") or "").strip(),
-                "shopCode": str(payload.get("shopCode", "") or "").strip(),
+                "cookie": cookie_text,
+                "userId": str(payload.get("userId", "") or extract_cookie_value(cookie_text, "pin") or "").strip(),
+                "appCode": str(payload.get("appCode", "") or extract_cookie_value(cookie_text, "systemCode") or "").strip(),
+                "shopCode": str(payload.get("shopCode", "") or extract_cookie_value(cookie_text, "shopCode") or "").strip(),
             }
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
             if jdl_token:
