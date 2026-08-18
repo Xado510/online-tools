@@ -207,6 +207,16 @@ def find_key(obj, key):
     return None
 
 
+def extract_cookie_value(cookie_text, name):
+    for part in (cookie_text or "").split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key.strip() == name:
+            return value.strip()
+    return ""
+
+
 def call_jd(path, payload, cookie, user_id, app_code):
     headers = {
         "Accept": "application/json",
@@ -716,6 +726,10 @@ def query_repair(
     user_id = str(user_id or "").strip() or client_config.get("userId", "") or DIGITAL_CONFIG.get("userId", "")
     app_code = str(app_code or "").strip() or client_config.get("appCode", "") or DIGITAL_CONFIG.get("appCode", "")
     shop_code = str(shop_code or "").strip() or client_config.get("shopCode", "") or DIGITAL_CONFIG.get("shopCode", "")
+    if not user_id:
+        user_id = extract_cookie_value(cookie, "pin")
+    if not app_code:
+        app_code = extract_cookie_value(cookie, "systemCode")
     facilitator_code = ""
     shop_name = ""
     shops = call_jd(
