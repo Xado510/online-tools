@@ -1878,7 +1878,9 @@
       '  let shopCode = "";',
       '  try { const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:{"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":appCode},body:"{}"}).then(r => r.json()); if (shops && shops.values && shops.values[0]) shopCode = shops.values[0].code || ""; } catch (e) {}',
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
-      '  const plain = JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId});',
+      '  const m = document.cookie.match(/(?:^|; )pin=([^;]+)/);',
+      '  const jdlToken = m ? m[1] : "";',
+      '  const plain = JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId,jdlToken});',
       '  const data = encodeURIComponent(plain);',
       '  location.href = bridge + "/api/repair/set-digital-cookie?data=" + data;',
       '  // 页面跳到 OK 后按返回，回到拆包系统重新查询',
@@ -2396,8 +2398,7 @@
       </div>
       <div class="detail-note" style="margin-top:14px">Cookie 仅保存在本机浏览器中，并只用于调用本地京东查询服务。</div>
       <div class="action-row" style="margin-top:14px">
-        <button class="btn" id="jdCopySnippet" type="button">宝藏自动获取</button>
-        <button class="btn" id="jdAutoPinCmd" type="button">展翅自动获取</button>
+        <button class="btn" id="jdCopySnippet" type="button">一键获取京东Cookie/Token</button>
         <button class="btn" id="jdLogoutBtn" type="button">退出登录</button>
         <button class="btn btn-danger" id="jdResetBtn" type="button">重置数据</button>
       </div>
@@ -2407,14 +2408,7 @@
     document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
     document.getElementById('jdCopySnippet').addEventListener('click', async () => {
       try {
-        await copyText(buildCloudJdSnippet(), '命令已复制，执行后页面会跳到 OK');
-      } catch (err) {
-        toast('复制失败，请手动复制', 'error');
-      }
-    });
-    document.getElementById('jdAutoPinCmd').addEventListener('click', async () => {
-      try {
-        await copyText(buildCloudJdlTokenSnippet(), '命令已复制，执行后页面会跳到 OK');
+        await copyText(buildCloudJdSnippet(), '命令已复制，执行后会同时保存 Cookie 和 Token');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
