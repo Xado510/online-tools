@@ -1484,7 +1484,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/repair/import":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                raw_body = self.rfile.read(length).decode("utf-8")
+                content_type = self.headers.get("Content-Type", "")
+                if "application/x-www-form-urlencoded" in content_type:
+                    form = urllib.parse.parse_qs(raw_body)
+                    payload = json.loads((form.get("data") or [""])[0])
+                else:
+                    payload = json.loads(raw_body)
             except Exception:
                 self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
                 return
@@ -1493,6 +1499,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if not tracking or not isinstance(result, dict):
                 self._send_json(400, {"ok": False, "error": "缺少 tracking 或 result"})
                 return
+            jdl_token = str(payload.get("jdlToken", "") or "").strip()
+            if jdl_token:
+                JDL_TOKEN = jdl_token
+                client_id = str(payload.get("clientId", "") or "").strip()
+                if client_id:
+                    CLIENT_JDL_TOKENS[client_id] = jdl_token
             LATEST_RESULTS[tracking] = result
             self._send_json(200, {"ok": True, "tracking": tracking})
             return
