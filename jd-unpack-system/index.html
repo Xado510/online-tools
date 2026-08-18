@@ -2403,6 +2403,8 @@
       <div class="disclaimer-content">
         <h3>京东 Cookie</h3>
         <p>打开京东维修页面并登录，按 F12 打开 Network，找到 baozang-out.jd.com 请求，复制 Request Headers 里的完整 Cookie，粘贴到设置中的 Cookie 框。</p>
+        <h3>请求头配置（推荐填写）</h3>
+        <p>在同一条请求的 Request Headers 中复制 userId、appcode、shopCode，粘贴到设置中对应的 userId、appCode、shopCode 输入框。</p>
         <h3>展翅 Token</h3>
         <p>打开展翅页面并登录，复制 pin 或 X-Access-Token，粘贴到设置中的 Token 框。</p>
         <p>保存后直接在扫码查询输入快递单号即可。</p>
@@ -2414,6 +2416,9 @@
 
   function openJdSettings() {
     const cookie = localStorage.getItem('jd_cookie') || '';
+    const userId = localStorage.getItem('jd_userId') || '';
+    const appCode = localStorage.getItem('jd_appCode') || '';
+    const shopCode = localStorage.getItem('jd_shopCode') || '';
     const jdlToken = localStorage.getItem('jd_jdl_token') || '';
     const jdlCookie = localStorage.getItem('jd_jdl_cookie') || '';
     const barPrinterPath = localStorage.getItem('jd_bar_printer_path') || '';
@@ -2421,6 +2426,18 @@
     const body = `
       <label class="field-label" for="jdCookie">Cookie</label>
       <textarea id="jdCookie" rows="5" placeholder="粘贴京东请求头中的 Cookie">${escapeHtml(cookie)}</textarea>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+        <div>
+          <label class="field-label" for="jdUserId">userId（可选）</label>
+          <input class="search-input" id="jdUserId" value="${escapeHtml(userId)}" placeholder="请求头 userId">
+        </div>
+        <div>
+          <label class="field-label" for="jdAppCode">appCode（可选）</label>
+          <input class="search-input" id="jdAppCode" value="${escapeHtml(appCode)}" placeholder="请求头 appcode">
+        </div>
+      </div>
+      <label class="field-label" for="jdShopCode">shopCode（可选）</label>
+      <input class="search-input" id="jdShopCode" value="${escapeHtml(shopCode)}" placeholder="请求头 shopCode">
       <label class="field-label" for="jdJdlToken">京东物流 Token（可选）</label>
       <input class="search-input" id="jdJdlToken" value="${escapeHtml(jdlToken)}" placeholder="粘贴 jdservice.jdl.com 的 pin / X-Access-Token">
       <label class="field-label" for="jdJdlCookie">京东物流 Cookie（可选）</label>
@@ -2459,6 +2476,9 @@
 
   function saveJdSettings() {
     localStorage.setItem('jd_cookie', document.getElementById('jdCookie').value.trim());
+    localStorage.setItem('jd_userId', document.getElementById('jdUserId').value.trim());
+    localStorage.setItem('jd_appCode', document.getElementById('jdAppCode').value.trim());
+    localStorage.setItem('jd_shopCode', document.getElementById('jdShopCode').value.trim());
     localStorage.setItem('jd_jdl_token', document.getElementById('jdJdlToken').value.trim());
     localStorage.setItem('jd_jdl_cookie', document.getElementById('jdJdlCookie').value.trim());
     localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
