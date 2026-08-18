@@ -1219,6 +1219,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/health":
             self._send_json(200, {"ok": True, "message": "JD repair bridge is running"})
             return
+        if parsed.path == "/api/repair/set-digital-cookie":
+            query = urllib.parse.parse_qs(parsed.query)
+            data_text = (query.get("data") or [""])[0]
+            try:
+                payload = json.loads(data_text)
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "data 不是合法 JSON"})
+                return
+            client_id = str(payload.get("clientId", "") or "").strip()
+            config_updates = {
+                "cookie": str(payload.get("cookie", "") or "").strip(),
+                "userId": str(payload.get("userId", "") or "").strip(),
+                "appCode": str(payload.get("appCode", "") or "").strip(),
+                "shopCode": str(payload.get("shopCode", "") or "").strip(),
+            }
+            DIGITAL_CONFIG.update(config_updates)
+            if client_id:
+                CLIENT_CONFIGS[client_id] = {
+                    **(CLIENT_CONFIGS.get(client_id) or {}),
+                    **config_updates,
+                }
+            save_digital_config()
+            self._send_json(200, {"ok": True, "message": "OK"})
+            return
+        if parsed.path == "/api/repair/set-jdl-token":
+            query = urllib.parse.parse_qs(parsed.query)
+            data_text = (query.get("data") or [""])[0]
+            try:
+                payload = json.loads(data_text)
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "data 不是合法 JSON"})
+                return
+            client_id = str(payload.get("clientId", "") or "").strip()
+            token = str(payload.get("jdlToken", "") or "").strip()
+            if token:
+                global JDL_TOKEN
+                JDL_TOKEN = token
+                if client_id:
+                    CLIENT_JDL_TOKENS[client_id] = token
+            self._send_json(200, {"ok": True, "message": "OK"})
+            return
         if parsed.path == "/api/repair/latest":
             query = urllib.parse.parse_qs(parsed.query)
             tracking = (query.get("tracking") or [""])[0].strip().upper()
