@@ -1880,8 +1880,8 @@
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
       '  const plain = JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId});',
       '  const data = encodeURIComponent(plain);',
-      '  const win = window.open(bridge + "/api/repair/set-digital-cookie?data=" + data, "_blank");',
-      '  if (win) { alert("已在新标签页提交配置，看到 OK 后回到拆包系统"); } else { await navigator.clipboard.writeText(plain); alert("浏览器拦截了新窗口，配置 JSON 已复制，请回到拆包系统设置中粘贴保存"); }',
+      '  location.href = bridge + "/api/repair/set-digital-cookie?data=" + data;',
+      '  // 页面跳到 OK 后按返回，回到拆包系统重新查询',
       '})();'
     ].join('\n');
   }
@@ -1897,8 +1897,8 @@
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
       '  const plain = JSON.stringify({jdlToken:token,clientId});',
       '  const data = encodeURIComponent(plain);',
-      '  const win = window.open(bridge + "/api/repair/set-jdl-token?data=" + data, "_blank");',
-      '  if (win) { alert("已在新标签页提交 Token，看到 OK 后回到拆包系统"); } else { await navigator.clipboard.writeText(plain); alert("浏览器拦截了新窗口，配置 JSON 已复制，请回到拆包系统设置中粘贴保存"); }',
+      '  location.href = bridge + "/api/repair/set-jdl-token?data=" + data;',
+      '  // 页面跳到 OK 后按返回，回到拆包系统重新查询',
       '})();'
     ].join('\n');
   }
@@ -2407,14 +2407,14 @@
     document.getElementById('jdFindPrinterBtn').addEventListener('click', findPrinterPath);
     document.getElementById('jdCopySnippet').addEventListener('click', async () => {
       try {
-        await copyText(buildCloudJdSnippet(), '京东抓取命令已复制');
+        await copyText(buildCloudJdSnippet(), '命令已复制，执行后页面会跳到 OK');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
     });
     document.getElementById('jdAutoPinCmd').addEventListener('click', async () => {
       try {
-        await copyText(buildCloudJdlTokenSnippet(), '展翅 Token 命令已复制');
+        await copyText(buildCloudJdlTokenSnippet(), '命令已复制，执行后页面会跳到 OK');
       } catch (err) {
         toast('复制失败，请手动复制', 'error');
       }
