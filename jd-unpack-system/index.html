@@ -1867,6 +1867,40 @@
     }, 1500);
   }
 
+  function buildCloudJdSnippet() {
+    const bridge = bridgeOrigin();
+    return [
+      '(async () => {',
+      '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const userInfo = localStorage.getItem("userInfo") || "";',
+      '  const userId = (() => { try { return userInfo ? encodeURIComponent(JSON.parse(userInfo)) : ""; } catch (e) { return encodeURIComponent(userInfo); } })();',
+      '  const appCode = localStorage.getItem("systemCode") || "";',
+      '  let shopCode = "";',
+      '  try { const shops = await fetch("https://baozang-out.jd.com/serviceOrder/queryBindShopInfo", {method:"POST",credentials:"include",headers:{"Content-Type":"application/json","sysType":"1","userId":userId,"appcode":appCode},body:"{}"}).then(r => r.json()); if (shops && shops.values && shops.values[0]) shopCode = shops.values[0].code || ""; } catch (e) {}',
+      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  const data = encodeURIComponent(JSON.stringify({cookie:document.cookie,userId,appCode,shopCode,clientId}));',
+      '  const win = window.open(bridge + "/api/repair/set-digital-cookie?data=" + data, "_blank");',
+      '  if (win) { alert("已在新标签页提交配置，看到 OK 后回到拆包系统"); } else { alert("浏览器阻止了新窗口，请手动把 Cookie 粘贴到设置中"); }',
+      '})();'
+    ].join('\n');
+  }
+
+  function buildCloudJdlTokenSnippet() {
+    const bridge = bridgeOrigin();
+    return [
+      '(async () => {',
+      '  const bridge = ' + JSON.stringify(bridge) + ';',
+      '  const m = document.cookie.match(/(?:^|; )pin=([^;]+)/);',
+      '  const token = m ? m[1] : "";',
+      '  if (!token) { alert("未找到 pin，请确认已登录 jdservice.jdl.com"); return; }',
+      '  const clientId = localStorage.getItem("jd_client_id") || "";',
+      '  const data = encodeURIComponent(JSON.stringify({jdlToken:token,clientId}));',
+      '  const win = window.open(bridge + "/api/repair/set-jdl-token?data=" + data, "_blank");',
+      '  if (win) { alert("已在新标签页提交 Token，看到 OK 后回到拆包系统"); } else { alert("浏览器阻止了新窗口，请手动把 Token 粘贴到设置中"); }',
+      '})();'
+    ].join('\n');
+  }
+
   function buildJdPageSnippet() {
     const bridge = bridgeOrigin();
     return [
