@@ -37,12 +37,14 @@ JD_SERVICE_BASE = "https://jdservice.jdl.com"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 LATEST_RESULTS = {}
 JDL_TOKEN = ""
+JDL_COOKIE = ""
 LAST_BARCODE_ERROR = ""
 DIGITAL_CONFIG = {"cookie": "", "userId": "", "appCode": "", "shopCode": ""}
 DIGITAL_CONFIG_FILE = os.path.join(ROOT_DIR, "digital_config.json")
 JDL_TOKEN_FILE = os.path.join(ROOT_DIR, "jdl_token.json")
 CLIENT_CONFIGS = {}
 CLIENT_JDL_TOKENS = {}
+CLIENT_JDL_COOKIES = {}
 SHARED_STATES = {}
 SHARED_STATE_FILE = os.path.join(ROOT_DIR, "shared_state.json")
 PERFORMANCE_MAP = {
@@ -91,12 +93,13 @@ def save_digital_config():
 
 
 def load_jdl_token():
-    global JDL_TOKEN
+    global JDL_TOKEN, JDL_COOKIE
     try:
         with open(JDL_TOKEN_FILE, encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
             JDL_TOKEN = str(data.get("jdlToken") or "").strip()
+            JDL_COOKIE = str(data.get("jdlCookie") or "").strip()
     except Exception:
         pass
 
@@ -104,7 +107,12 @@ def load_jdl_token():
 def save_jdl_token():
     try:
         with open(JDL_TOKEN_FILE, "w", encoding="utf-8") as handle:
-            json.dump({"jdlToken": JDL_TOKEN}, handle, ensure_ascii=False, indent=2)
+            json.dump(
+                {"jdlToken": JDL_TOKEN, "jdlCookie": JDL_COOKIE},
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
     except Exception:
         pass
 
@@ -626,8 +634,11 @@ def call_jd_service(path, payload, jdl_token, jdl_cookie=""):
         "login-type": "2",
         "X-Requested-With": "XMLHttpRequest",
     }
-    token_value = (jdl_token or "").strip()
-    cookie_value = (jdl_cookie or "").strip().replace("\r", "").replace("\n", "")
+    token_value = (jdl_token or "").strip() or JDL_TOKEN
+    cookie_value = (
+        (jdl_cookie or "").strip().replace("\r", "").replace("\n", "")
+        or JDL_COOKIE
+    )
     if token_value:
         headers["X-Access-Token"] = token_value
     if cookie_value:
@@ -678,52 +689,73 @@ def format_performing_model(commit):
     return PERFORMANCE_MAP.get(code) or leaf or code or "未知状态"
 
 
-def query_parts_barcode(merchant_order_no, jdl_token, jdl_cookie="", client_id=""):
+def query_parts_barcode(
+    merchant_order_no,
+    jdl_token,
+    jdl_cookie="",
+    client_id="",
+    service_bill_no="",
+    afs_service_bill_no="",
+):
     global LAST_BARCODE_ERROR
     LAST_BARCODE_ERROR = ""
-    if not merchant_order_no:
+    candidates = []
+    if merchant_order_no:
+        candidates.append(
+            {"merchantOrderNo": str(merchant_order_no).strip()}
+        )
+    if service_bill_no:
+        candidates.append({"serviceBillNo": str(service_bill_no).strip()})
+    if afs_service_bill_no:
+        candidates.append({"afsServiceBillNo": str(afs_service_bill_no).strip()})
+    if not candidates:
         return ""
     token = (
         (jdl_token or "").strip()
         or CLIENT_JDL_TOKENS.get(client_id, "")
         or JDL_TOKEN
     )
-    cookie = (jdl_cookie or "").strip()
-    response = call_jd_service(
-        "/spcapi/mcsServiceBill/page",
-        {
-            "merchantOrderNo": str(merchant_order_no).strip(),
-            "pageIndex": 1,
-            "pageSize": 10,
-            "serviceBillState": -1000,
-            "createTimeBegin": None,
-            "createTimeEnd": None,
-        },
-        token,
-        cookie,
+    cookie = (
+        (jdl_cookie or "").strip()
+        or CLIENT_JDL_COOKIES.get(client_id, "")
+        or JDL_COOKIE
     )
-    sys.stdout.write(
-        "bridge: mcs page merchant=%r response=%s\n"
-        % (merchant_order_no, json.dumps(response, ensure_ascii=False)[:2000])
-    )
-    sys.stdout.flush()
-    if not isinstance(response, dict):
-        LAST_BARCODE_ERROR = "京东物流返回格式异常"
-        return ""
-    if response.get("error") == "NotLogin" or response.get("success") is False:
-        LAST_BARCODE_ERROR = str(
-            response.get("error")
-            or response.get("msg")
-            or response.get("message")
-            or "京东物流查询失败"
+    for candidate in candidates:
+        response = call_jd_service(
+            "/spcapi/mcsServiceBill/page",
+            {
+                **candidate,
+                "pageIndex": 1,
+                "pageSize": 10,
+                "serviceBillState": -1000,
+                "createTimeBegin": None,
+                "createTimeEnd": None,
+            },
+            token,
+            cookie,
         )
-        return ""
-    data = response.get("data") or {}
-    item_list = data.get("itemList") or []
-    if item_list and isinstance(item_list, list):
-        first = item_list[0]
-        if isinstance(first, dict):
-            return first.get("partCode") or ""
+        sys.stdout.write(
+            "bridge: mcs page query=%r response=%s\n"
+            % (candidate, json.dumps(response, ensure_ascii=False)[:2000])
+        )
+        sys.stdout.flush()
+        if not isinstance(response, dict):
+            LAST_BARCODE_ERROR = "京东物流返回格式异常"
+            return ""
+        if response.get("error") == "NotLogin" or response.get("success") is False:
+            LAST_BARCODE_ERROR = str(
+                response.get("error")
+                or response.get("msg")
+                or response.get("message")
+                or "京东物流查询失败"
+            )
+            return ""
+        data = response.get("data") or {}
+        item_list = data.get("itemList") or []
+        if item_list and isinstance(item_list, list):
+            first = item_list[0]
+            if isinstance(first, dict) and first.get("partCode"):
+                return str(first["partCode"]).strip()
     LAST_BARCODE_ERROR = "京东物流未返回备件条码"
     return ""
 
@@ -868,8 +900,6 @@ def query_repair(
         or row_info["performingOrderNo"]
         or row_info["serviceOrderNo"]
     )
-    part_barcode = query_parts_barcode(performing_order_no, jdl_token, jdl_cookie, client_id)
-
     merchant_order_no = (
         find_key(commit, "merchantOrderNo")
         or find_key(receive, "merchantOrderNo")
@@ -884,6 +914,14 @@ def query_repair(
         find_key(commit, "afsServiceBillNo")
         or find_key(receive, "afsServiceBillNo")
         or find_key(detail, "afsServiceBillNo")
+    )
+    part_barcode = query_parts_barcode(
+        merchant_order_no or performing_order_no,
+        jdl_token,
+        jdl_cookie,
+        client_id,
+        service_bill_no,
+        afs_service_bill_no,
     )
 
     return {
@@ -1135,13 +1173,21 @@ def auto_start_and_sync(
 
     part_barcode = ""
     performing_order_no = base.get("performingOrderNo") or ""
+    merchant_order_no = base.get("merchantOrderNo") or ""
+    service_bill_no = base.get("serviceBillNo") or ""
+    afs_service_bill_no = base.get("afsServiceBillNo") or ""
     barcode_attempts = 0
     max_barcode_attempts = 1
     while not part_barcode and barcode_attempts < max_barcode_attempts:
         barcode_attempts += 1
-        if performing_order_no:
+        if performing_order_no or merchant_order_no:
             part_barcode = query_parts_barcode(
-                performing_order_no, jdl_token, jdl_cookie, client_id
+                merchant_order_no or performing_order_no,
+                jdl_token,
+                jdl_cookie,
+                client_id,
+                service_bill_no,
+                afs_service_bill_no,
             )
         sys.stdout.write(
             "bridge: barcode retry %d/%d found=%s partCode=%r error=%r\n"
@@ -1251,6 +1297,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        global JDL_TOKEN, JDL_COOKIE
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
             self._send_json(200, {"ok": True, "message": "JD repair bridge is running"})
@@ -1272,11 +1319,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "shopCode": str(payload.get("shopCode", "") or extract_cookie_value(cookie_text, "shopCode") or "").strip(),
             }
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
-            if jdl_token:
-                global JDL_TOKEN
-                JDL_TOKEN = jdl_token
+            jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
+            if jdl_token or jdl_cookie:
+                if jdl_token:
+                    JDL_TOKEN = jdl_token
+                if jdl_cookie:
+                    JDL_COOKIE = jdl_cookie
                 if client_id:
-                    CLIENT_JDL_TOKENS[client_id] = jdl_token
+                    if jdl_token:
+                        CLIENT_JDL_TOKENS[client_id] = jdl_token
+                    if jdl_cookie:
+                        CLIENT_JDL_COOKIES[client_id] = jdl_cookie
                 save_jdl_token()
             DIGITAL_CONFIG.update(config_updates)
             if client_id:
@@ -1297,12 +1350,39 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
             client_id = str(payload.get("clientId", "") or "").strip()
             token = str(payload.get("jdlToken", "") or "").strip()
-            if token:
+            cookie = str(payload.get("jdlCookie", "") or "").strip()
+            if token or cookie:
                 JDL_TOKEN = token
+                JDL_COOKIE = cookie
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = token
+                    CLIENT_JDL_COOKIES[client_id] = cookie
                 save_jdl_token()
-            self._send_json(200, {"ok": True, "message": "OK"})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "message": "OK",
+                    "configured": bool(JDL_TOKEN or JDL_COOKIE),
+                },
+            )
+            return
+        if parsed.path == "/api/repair/config":
+            token_configured = bool(
+                JDL_TOKEN
+                or any(CLIENT_JDL_TOKENS.values())
+                or JDL_COOKIE
+                or any(CLIENT_JDL_COOKIES.values())
+            )
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "digitalConfigured": bool(DIGITAL_CONFIG.get("cookie")),
+                    "jdlConfigured": token_configured,
+                    "message": "京东维修/展翅登录状态",
+                },
+            )
             return
         if parsed.path == "/api/repair/latest":
             query = urllib.parse.parse_qs(parsed.query)
@@ -1358,6 +1438,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        global JDL_TOKEN, JDL_COOKIE
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/print":
             try:
@@ -1480,6 +1561,19 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "appCode": str(payload.get("appCode", "") or "").strip(),
                 "shopCode": str(payload.get("shopCode", "") or "").strip(),
             }
+            jdl_token = str(payload.get("jdlToken", "") or "").strip()
+            jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
+            if jdl_token or jdl_cookie:
+                if jdl_token:
+                    JDL_TOKEN = jdl_token
+                if jdl_cookie:
+                    JDL_COOKIE = jdl_cookie
+                if client_id:
+                    if jdl_token:
+                        CLIENT_JDL_TOKENS[client_id] = jdl_token
+                    if jdl_cookie:
+                        CLIENT_JDL_COOKIES[client_id] = jdl_cookie
+                save_jdl_token()
             DIGITAL_CONFIG.update(config_updates)
             if client_id:
                 CLIENT_CONFIGS[client_id] = {
@@ -1504,18 +1598,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             except Exception:
                 self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
                 return
-            global JDL_TOKEN
             client_id = str(payload.get("clientId", "") or "").strip()
             token = str(payload.get("jdlToken", "") or "").strip()
+            cookie = str(payload.get("jdlCookie", "") or "").strip()
             JDL_TOKEN = token
+            JDL_COOKIE = cookie
             save_jdl_token()
             if client_id:
                 CLIENT_JDL_TOKENS[client_id] = token
+                CLIENT_JDL_COOKIES[client_id] = cookie
             self._send_json(
                 200,
                 {
                     "ok": True,
-                    "configured": bool(JDL_TOKEN),
+                    "configured": bool(JDL_TOKEN or JDL_COOKIE),
                     "message": "京东物流 Token 已保存到本地桥接服务",
                 },
             )
@@ -1540,11 +1636,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "缺少 tracking 或 result"})
                 return
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
-            if jdl_token:
+            jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
+            if jdl_token or jdl_cookie:
                 JDL_TOKEN = jdl_token
+                JDL_COOKIE = jdl_cookie
                 client_id = str(payload.get("clientId", "") or "").strip()
                 if client_id:
                     CLIENT_JDL_TOKENS[client_id] = jdl_token
+                    CLIENT_JDL_COOKIES[client_id] = jdl_cookie
                 save_jdl_token()
             LATEST_RESULTS[tracking] = result
             self._send_json(200, {"ok": True, "tracking": tracking})
@@ -1562,7 +1661,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
             jdl_cookie = payload.get("jdlCookie", "")
             client_id = payload.get("clientId", "")
             part_barcode = query_parts_barcode(
-                merchant_order_no, jdl_token, jdl_cookie, client_id
+                merchant_order_no,
+                jdl_token,
+                jdl_cookie,
+                client_id,
+                payload.get("serviceBillNo", ""),
+                payload.get("afsServiceBillNo", ""),
             )
             sys.stdout.write(
                 "bridge: part-barcode order=%r found=%s partCode=%r error=%r\n"
