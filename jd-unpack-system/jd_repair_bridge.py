@@ -27,6 +27,11 @@ PRINT_SCRIPT = os.path.join(ROOT_DIR, "trigger_barcode_print.ps1")
 EDGE_CANDIDATES = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"/usr/bin/google-chrome",
+    r"/usr/bin/google-chrome-stable",
+    r"/usr/bin/chromium",
+    r"/usr/bin/chromium-browser",
+    r"/opt/google/chrome/chrome",
 ]
 DEFAULT_BAR_PRINTER = (
     r"D:\we\data\xwechat_files\wxid_4m1kqcgnvn2v22_d9be\msg\file\2026-07"
@@ -39,6 +44,7 @@ LATEST_RESULTS = {}
 JDL_TOKEN = ""
 JDL_COOKIE = ""
 LAST_BARCODE_ERROR = ""
+SUMMER_CRYPTO_JS = ""
 DIGITAL_CONFIG = {"cookie": "", "userId": "", "appCode": "", "shopCode": ""}
 DIGITAL_CONFIG_FILE = os.path.join(ROOT_DIR, "digital_config.json")
 JDL_TOKEN_FILE = os.path.join(ROOT_DIR, "jdl_token.json")
@@ -251,7 +257,7 @@ def call_jd(path, payload, cookie, user_id, app_code):
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
         "Origin": "https://digital-ins.jd.com",
-        "Referer": "https://digital-ins.jd.com/repair",
+        "Referer": "https://digital-ins.jd.com/repair/business/pendingServiceList",
         "sysType": "1",
         "User-Agent": UA,
     }
@@ -287,7 +293,7 @@ def call_jd_get(path, cookie, user_id, app_code):
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
         "Origin": "https://digital-ins.jd.com",
-        "Referer": "https://digital-ins.jd.com/repair",
+        "Referer": "https://digital-ins.jd.com/repair/business/pendingServiceList",
         "sysType": "1",
         "User-Agent": UA,
     }
@@ -404,6 +410,7 @@ def _set_cdp_cookies(ws, cookie_text):
                 "domain": ".jd.com",
                 "path": "/",
                 "secure": True,
+                "sameSite": "None",
             }
         )
     if not cookies:
@@ -461,6 +468,8 @@ def call_jd_encrypted_headless(path, payload, cookie, user_id, app_code, key_tex
             edge_path,
             "--headless=new",
             "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
             "--no-first-run",
             "--no-default-browser-check",
             "--remote-debugging-port=%d" % port,
@@ -521,13 +530,173 @@ def call_jd_encrypted_headless(path, payload, cookie, user_id, app_code, key_tex
             pass
 
 
+def auto_start_via_browser(express_no, cookie, user_id, app_code):
+    edge_path = _find_edge_path()
+    port = 10240 + secrets.randbelow(20000)
+    profile = os.path.join(
+        os.environ.get("TEMP", ROOT_DIR),
+        "jd-unpack-cdp-" + secrets.token_hex(4),
+    )
+    process = subprocess.Popen(
+        [
+            edge_path,
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--remote-debugging-port=%d" % port,
+            "--remote-allow-origins=*",
+            "--user-data-dir=" + profile,
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    ws = None
+    try:
+        _wait_debugger(port)
+        ws_url = _get_page_ws(port)
+        ws = create_connection(ws_url, timeout=30)
+        _cdp(ws, "Network.enable", {}, 2)
+        _cdp(ws, "Page.enable", {}, 3)
+        _set_cdp_cookies(ws, cookie)
+        local_script = (
+            "try{"
+            "localStorage.setItem('userInfo',"
+            + json.dumps(json.dumps(user_id or ""))
+            + ");"
+            "localStorage.setItem('systemCode',"
+            + json.dumps(app_code or "")
+            + ");"
+            "}catch(e){}"
+        )
+        _cdp(
+            ws,
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": local_script},
+            5,
+        )
+        _cdp(
+            ws,
+            "Page.navigate",
+            {"url": "https://digital-ins.jd.com/repair/business/pendingServiceList"},
+            6,
+        )
+        if not _wait_page_ready(ws):
+            return {"ok": False, "error": "宝藏页面或加密组件未加载完成"}
+        time.sleep(2)
+        try:
+            final_ws_url = _get_page_ws(port)
+            final_ws = create_connection(final_ws_url, timeout=30)
+            ws = final_ws
+        except Exception as error:
+            return {"ok": False, "error": "连接宝藏页面失败：" + str(error)}
+        probe = _evaluate_cdp(
+            ws,
+            "document.readyState + '|' + location.href",
+            False,
+        )
+        sys.stdout.write(
+            "bridge: browser probe=%s\n"
+            % json.dumps(probe, ensure_ascii=False)[:1200]
+        )
+        sys.stdout.flush()
+        if probe.get("error"):
+            return {"ok": False, "error": "宝藏页面连接不稳定：" + str(probe.get("error"))}
+        code = str(express_no or "").strip()
+        expression = r"""
+(async () => {
+  const code = __CODE__;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const waitFor = async (fn, timeout) => {
+    const end = Date.now() + (timeout || 30000);
+    while (Date.now() < end) {
+      const value = fn();
+      if (value) return value;
+      await sleep(400);
+    }
+    return null;
+  };
+  const input = await waitFor(() => Array.from(document.querySelectorAll('input')).find((el) => {
+    const p = String(el.placeholder || '').trim();
+    return (p === '快递单号' || p === '履约单号') && el.offsetParent !== null;
+  }));
+  if (!input) return {ok: false, error: '未找到快递单号/履约单号输入框'};
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, code);
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  input.dispatchEvent(new Event('change', {bubbles: true}));
+  const queryButton = await waitFor(() => Array.from(document.querySelectorAll('button')).find((el) => {
+    const text = (el.innerText || '').trim();
+    return (text === '查询' || text === '查询查看' || text.includes('查询')) && el.offsetParent !== null;
+  }));
+  if (!queryButton) return {ok: false, error: '未找到查询按钮'};
+  queryButton.click();
+  const row = await waitFor(() => Array.from(document.querySelectorAll('.el-table__body-wrapper tbody tr, .el-table tbody tr')).find((el) => el.offsetParent !== null && (el.innerText || '').includes(code)), 35000);
+  if (!row) return {ok: false, error: '未找到该单记录', found: false};
+  await sleep(800);
+  const receiveButton = await waitFor(() => Array.from(document.querySelectorAll('button')).find((el) => {
+    const text = (el.innerText || '').trim();
+    return (text === '确认接机' || text === '开始接机' || text.includes('接机')) && el.offsetParent !== null;
+  }), 10000);
+  if (!receiveButton) return {ok: false, error: '未找到确认接机按钮', found: false};
+  receiveButton.click();
+  await sleep(800);
+  const confirmButton = Array.from(document.querySelectorAll('button')).find((el) => {
+    const text = (el.innerText || '').trim();
+    return (text === '确定' || text === '确认') && el.offsetParent !== null;
+  });
+  if (confirmButton) confirmButton.click();
+  await sleep(1500);
+  return {ok: true, found: true, message: '已触发确认接机'};
+})()
+"""
+        expression = expression.replace("__CODE__", json.dumps(code))
+        result = _evaluate_cdp(ws, expression)
+        sys.stdout.write(
+            "bridge: browser cdp result=%s\n"
+            % json.dumps(result, ensure_ascii=False)[:4000]
+        )
+        sys.stdout.flush()
+        exception = result.get("result", {}).get("exceptionDetails")
+        if exception:
+            detail = str(
+                exception.get("exception", {}).get("description")
+                or exception
+            )
+            return {"ok": False, "error": detail[:500]}
+        value = result.get("result", {}).get("result", {}).get("value")
+        return value or {"ok": False, "error": "浏览器自动接机未返回结果"}
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+    finally:
+        try:
+            if ws:
+                ws.close()
+        except Exception:
+            pass
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        try:
+            import shutil
+
+            shutil.rmtree(profile, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _post_encrypted_body(path, encrypted_body, cookie, user_id, app_code):
     headers = {
         "Accept": "application/json",
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
         "Origin": "https://digital-ins.jd.com",
-        "Referer": "https://digital-ins.jd.com/repair",
+        "Referer": "https://digital-ins.jd.com/repair/business/pendingServiceList",
         "sysType": "1",
         "User-Agent": UA,
     }
@@ -557,6 +726,103 @@ def _post_encrypted_body(path, encrypted_body, cookie, user_id, app_code):
         return {"success": False, "error": str(error)}
 
 
+def load_summer_cryptico_js():
+    global SUMMER_CRYPTO_JS
+    if SUMMER_CRYPTO_JS:
+        return SUMMER_CRYPTO_JS
+    url = (
+        "https://storage.jd.com/public-static-resource/"
+        "baozang/js/summer-cryptico-h5.min.js"
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        SUMMER_CRYPTO_JS = decode_body(response.read(), response.headers)
+    return SUMMER_CRYPTO_JS
+
+
+def encrypt_with_summer_cryptico(key_text, payload):
+    script_text = load_summer_cryptico_js()
+    edge_path = _find_edge_path()
+    port = 10240 + secrets.randbelow(20000)
+    profile = os.path.join(
+        os.environ.get("TEMP", ROOT_DIR),
+        "jd-unpack-cdp-" + secrets.token_hex(4),
+    )
+    process = subprocess.Popen(
+        [
+            edge_path,
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--remote-debugging-port=%d" % port,
+            "--remote-allow-origins=*",
+            "--user-data-dir=" + profile,
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    ws = None
+    try:
+        _wait_debugger(port)
+        ws_url = _get_page_ws(port)
+        ws = create_connection(ws_url, timeout=30)
+        _cdp(ws, "Runtime.enable", {}, 2)
+        load_result = _evaluate_cdp(
+            ws,
+            "eval(" + json.dumps(script_text) + ")",
+            False,
+        )
+        load_exception = load_result.get("result", {}).get("exceptionDetails")
+        if load_exception:
+            raise RuntimeError(
+                str(
+                    load_exception.get("exception", {}).get("description")
+                    or load_exception
+                )
+            )
+        expression = (
+            "(async () => {"
+            " const keyResult = " + json.dumps(key_text) + ";"
+            " const payload = " + json.dumps(payload, ensure_ascii=False) + ";"
+            " return window.SummerCryptico.encryptData(keyResult, JSON.stringify(payload));"
+            "})()"
+        )
+        result = _evaluate_cdp(ws, expression)
+        exception = result.get("result", {}).get("exceptionDetails")
+        if exception:
+            raise RuntimeError(
+                str(
+                    exception.get("exception", {}).get("description")
+                    or exception
+                )
+            )
+        encrypted_body = result.get("result", {}).get("result", {}).get("value")
+        if not encrypted_body:
+            raise RuntimeError("SummerCryptico 加密结果为空")
+        return encrypted_body
+    finally:
+        try:
+            if ws:
+                ws.close()
+        except Exception:
+            pass
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        try:
+            import shutil
+
+            shutil.rmtree(profile, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def call_jd_encrypted(path, payload, cookie, user_id, app_code):
     key_response = call_jd_get("/aks/getSMKey", cookie, user_id, app_code)
     sys.stdout.write(
@@ -575,12 +841,20 @@ def call_jd_encrypted(path, payload, cookie, user_id, app_code):
             ),
         }
     try:
-        return call_jd_encrypted_headless(
-            path, payload, cookie, user_id, app_code, key_response.get("result")
+        encrypted_body = encrypt_with_summer_cryptico(
+            key_response.get("result"),
+            payload,
+        )
+        return _post_encrypted_body(
+            path,
+            encrypted_body,
+            cookie,
+            user_id,
+            app_code,
         )
     except Exception as error:
         sys.stdout.write(
-            "bridge: headless encrypted error=%s\n" % str(error)
+            "bridge: summer cryptico error=%s\n" % str(error)
         )
         sys.stdout.flush()
     encrypted_body = jd_encrypt_data(key_response.get("result"), payload)
@@ -594,7 +868,7 @@ def call_jd_encrypted(path, payload, cookie, user_id, app_code):
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
         "Origin": "https://digital-ins.jd.com",
-        "Referer": "https://digital-ins.jd.com/repair",
+        "Referer": "https://digital-ins.jd.com/repair/business/pendingServiceList",
         "sysType": "1",
         "User-Agent": UA,
     }
@@ -687,6 +961,22 @@ def format_performing_model(commit):
     if code in ("ADD_VALUE", "10") and leaf:
         return leaf
     return PERFORMANCE_MAP.get(code) or leaf or code or "未知状态"
+
+
+def is_pending_start_row(row):
+    state = str(find_key(row, "serviceState") or "").strip()
+    return state in {
+        "ZERO",
+        "ONE",
+        "WAIT_REPORT_INFO",
+        "WAIT_VISIT",
+        "WAIT_ARRIVE_STORE",
+        "EXPRESS_INFO_FINISH",
+        "WAIT_RECEIVE",
+        "WAIT_RECEIVED",
+        "TO_BE_RECEIVED",
+        "RECEIVE",
+    }
 
 
 def query_parts_barcode(
@@ -821,6 +1111,7 @@ def query_repair(
             "orderId",
         ]
     rows = []
+    all_rows = []
     list_response = None
     for field in query_fields:
         query = {field: code_value}
@@ -841,11 +1132,12 @@ def query_repair(
             rows = list_response.get("values") or list_response.get("value") or []
             if isinstance(rows, dict):
                 rows = [rows]
-            if rows:
+            all_rows.extend(rows or [])
+            if any(is_pending_start_row(row) for row in (rows or [])):
                 break
     if not list_response:
         return {"ok": False, "error": "查询接口未返回结果"}
-    if not rows:
+    if not all_rows:
         if not list_response.get("success"):
             message = (
                 list_response.get("msg")
@@ -856,7 +1148,10 @@ def query_repair(
             return {"ok": False, "error": str(message)}
         return {"ok": True, "found": False}
 
-    row = rows[0]
+    row = next(
+        (item for item in all_rows if is_pending_start_row(item)),
+        all_rows[0],
+    )
     row_info = normalize_row(row)
     detail_payload = {
         "serviceOrderNo": row_info["serviceOrderNo"],
@@ -966,6 +1261,33 @@ def auto_start_and_sync(
     jdl_cookie="",
     client_id="",
 ):
+    client_config = CLIENT_CONFIGS.get(client_id) or {}
+    cookie = (
+        str(cookie or "").strip()
+        or client_config.get("cookie", "")
+        or DIGITAL_CONFIG.get("cookie", "")
+    )
+    user_id = (
+        str(user_id or "").strip()
+        or client_config.get("userId", "")
+        or DIGITAL_CONFIG.get("userId", "")
+    )
+    app_code = (
+        str(app_code or "").strip()
+        or client_config.get("appCode", "")
+        or DIGITAL_CONFIG.get("appCode", "")
+    )
+    shop_code = (
+        str(shop_code or "").strip()
+        or client_config.get("shopCode", "")
+        or DIGITAL_CONFIG.get("shopCode", "")
+    )
+    if not user_id:
+        user_id = extract_cookie_value(cookie, "pin")
+    if not app_code:
+        app_code = extract_cookie_value(cookie, "systemCode")
+    if not shop_code:
+        shop_code = extract_cookie_value(cookie, "shopCode")
     steps = []
     base = query_repair(
         express_no,
@@ -1013,6 +1335,9 @@ def auto_start_and_sync(
         or ""
     ).strip()
     wait_receive_states = {
+        "ZERO",
+        "ONE",
+        "WAIT_REPORT_INFO",
         "EXPRESS_INFO_FINISH",
         "WAIT_VISIT",
         "WAIT_ARRIVE_STORE",
@@ -1021,7 +1346,24 @@ def auto_start_and_sync(
         "TO_BE_RECEIVED",
         "RECEIVE",
     }
-    already_started = bool(service_state) and service_state not in wait_receive_states
+    terminal_states = {
+        "SERVICE_ORDER_END",
+        "CANCEL",
+        "CUSTOMER_RECEIVE",
+        "RETURN_GOODS",
+        "MAINTAIN_FINISH",
+        "MAINTAIN_FINISH_WAIT_VISIT",
+        "MAINTAIN_FINISH_WAIT_SHORE",
+        "MAINTAIN_FINISH_WAIT_PAY",
+        "FINISH_PAY",
+        "FAIL_PAY",
+    }
+    terminal_blocked = service_state in terminal_states
+    already_started = (
+        bool(service_state)
+        and service_state not in wait_receive_states
+        and not terminal_blocked
+    )
 
     order_info = {}
     for key in (
@@ -1118,7 +1460,13 @@ def auto_start_and_sync(
 
     start_response = {}
     start_success = True
-    if already_started:
+    if terminal_blocked:
+        start_success = False
+        start_response = {
+            "success": False,
+            "showMsg": "京东维修中该履约单已结单，未找到待确认接机的服务单",
+        }
+    elif already_started:
         start_response = {"success": True, "showMsg": "该单已接机，跳过开始接机"}
     else:
         start_payload = {
@@ -1151,6 +1499,9 @@ def auto_start_and_sync(
             or ""
         )
         if "HTTP 400" in start_error_text or "HTTP 4" in start_error_text:
+            start_response["encryptionRequired"] = True
+            start_response["showMsg"] = "需要在京东维修页面执行自动接机命令"
+        if "NotLogin" in start_error_text or "未登录" in start_error_text:
             start_response["encryptionRequired"] = True
             start_response["showMsg"] = "需要在京东维修页面执行自动接机命令"
         if not start_success and any(
