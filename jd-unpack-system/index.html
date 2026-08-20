@@ -1960,15 +1960,16 @@
     ].join('\n');
   }
 
-  function buildAutoStartSnippet() {
+  function buildAutoStartSnippet(code) {
+    const codeExpr = code ? JSON.stringify(String(code).trim().toUpperCase()) : 'prompt("输入京东快递单号/履约单号")';
     return [
       '(async () => {',
-      '  const expressNo = prompt("输入京东快递单号");',
+      '  const expressNo = ' + codeExpr + ';',
       '  if (!expressNo) return;',
       '  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));',
       '  const waitFor = async (fn, timeout) => { const end = Date.now() + (timeout || 30000); while (Date.now() < end) { const value = fn(); if (value) return value; await sleep(400); } return null; };',
-      '  const expressInput = await waitFor(() => Array.from(document.querySelectorAll("input")).find((el) => el.placeholder && String(el.placeholder).trim() === "快递单号" && el.offsetParent !== null));',
-      '  if (!expressInput) { alert("未找到快递单号输入框，请确认已打开 服务单查询 页面"); return; }',
+      '  const expressInput = await waitFor(() => Array.from(document.querySelectorAll("input")).find((el) => { const p = el.placeholder && String(el.placeholder).trim(); return (p === "快递单号" || p === "履约单号") && el.offsetParent !== null; }));',
+      '  if (!expressInput) { alert("未找到快递单号/履约单号输入框，请确认已打开 服务单查询 页面"); return; }',
       '  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;',
       '  setter.call(expressInput, expressNo.trim().toUpperCase());',
       '  expressInput.dispatchEvent(new Event("input", {bubbles:true}));',
@@ -1986,6 +1987,12 @@
       '  alert("已点击确认接机，请返回拆包系统重新查询");',
       '})();'
     ].join('\n');
+  }
+
+  function openBrowserAutoStart(code) {
+    copyText(buildAutoStartSnippet(code), '自动接机命令已复制');
+    window.open('https://digital-ins.jd.com/repair/business/pendingServiceList', '_blank');
+    toast('已打开宝藏页面，请按 Ctrl+Shift+J，粘贴命令回车', '');
   }
 
   function buildJdlTokenSnippet() {
@@ -2086,7 +2093,7 @@
       }
       applyJdRepairData(data, code, seq);
       if (data && data.encryptionRequired) {
-        toast('请在京东维修页面执行自动接机命令，再回来查询', 'error');
+        openBrowserAutoStart(code);
       } else if (data && data.startSuccess) {
         const startStep = Array.isArray(data.steps) ? data.steps.find((s) => s.name === 'start') : null;
         if (startStep && startStep.skipped) {
@@ -2124,11 +2131,7 @@
     const input = document.getElementById('trackingInput');
     if (input) input.value = normalized;
     const performingInput = isPerformingCode(normalized);
-    if (localStorage.getItem('jd_auto_start') !== '0') {
-      queryJdRepairAutoStart(normalized);
-    } else {
-      queryJdRepair(normalized);
-    }
+    queryJdRepairAutoStart(normalized);
 
     const matchesParcelCode = (p) => [
       p.tracking,
@@ -2448,8 +2451,8 @@
       <label class="field-label" for="jdJdlCookie">京东物流 Cookie（可选）</label>
       <textarea id="jdJdlCookie" rows="3" placeholder="粘贴 jdservice.jdl.com 请求头中的完整 Cookie">${escapeHtml(jdlCookie)}</textarea>
       <label class="field-label" for="jdAutoStart" style="display:flex;align-items:center;gap:8px;margin-top:12px">
-        <input type="checkbox" id="jdAutoStart" ${localStorage.getItem('jd_auto_start') !== '0' ? 'checked' : ''}>
-        查询后自动开始接机并同步备件条码
+        <input type="checkbox" id="jdAutoStart" checked disabled>
+        查询后自动开始接机并同步备件条码（固定开启）
       </label>
       <label class="field-label" for="jdBarPrinterPath">条码打印软件路径（可选）</label>
       <div style="display:flex;gap:8px">
@@ -2490,7 +2493,7 @@
     localStorage.removeItem('jd_shopCode');
     localStorage.setItem('jd_jdl_token', savedJdlToken);
     localStorage.setItem('jd_jdl_cookie', savedJdlCookie);
-    localStorage.setItem('jd_auto_start', document.getElementById('jdAutoStart').checked ? '1' : '0');
+    localStorage.setItem('jd_auto_start', '1');
     localStorage.setItem('jd_bar_printer_path', document.getElementById('jdBarPrinterPath').value.trim());
     if (savedJdlToken || savedJdlCookie) {
       try {
