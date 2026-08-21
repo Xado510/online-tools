@@ -7,7 +7,9 @@ import secrets
 import socket
 import subprocess
 import sys
+import threading
 import time
+import datetime
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -45,7 +47,13 @@ JDL_TOKEN = ""
 JDL_COOKIE = ""
 LAST_BARCODE_ERROR = ""
 SUMMER_CRYPTO_JS = ""
-DIGITAL_CONFIG = {"cookie": "", "userId": "", "appCode": "", "shopCode": ""}
+DIGITAL_CONFIG = {
+    "cookie": "",
+    "cookie2": "",
+    "userId": "",
+    "appCode": "",
+    "shopCode": "",
+}
 DIGITAL_CONFIG_FILE = os.path.join(ROOT_DIR, "digital_config.json")
 JDL_TOKEN_FILE = os.path.join(ROOT_DIR, "jdl_token.json")
 CLIENT_CONFIGS = {}
@@ -53,6 +61,11 @@ CLIENT_JDL_TOKENS = {}
 CLIENT_JDL_COOKIES = {}
 SHARED_STATES = {}
 SHARED_STATE_FILE = os.path.join(ROOT_DIR, "shared_state.json")
+PRINT_AGENTS = {}
+PRINT_JOBS = {}
+PRINT_JOB_RESULTS = {}
+PRINT_JOB_SEQ = 0
+PRINT_LOCK = threading.Lock()
 PERFORMANCE_MAP = {
     "01": "维修",
     "REPAIR": "维修",
@@ -83,7 +96,7 @@ def load_digital_config():
             DIGITAL_CONFIG.update(
                 {
                     key: str(data.get(key) or "").strip()
-                    for key in ("cookie", "userId", "appCode", "shopCode")
+                    for key in ("cookie", "cookie2", "userId", "appCode", "shopCode")
                 }
             )
     except Exception:
@@ -134,6 +147,7 @@ def load_shared_states():
 
 
 def save_shared_states():
+    cleanup_shared_states()
     try:
         with open(SHARED_STATE_FILE, "w", encoding="utf-8") as handle:
             json.dump(SHARED_STATES, handle, ensure_ascii=False, indent=2)
@@ -152,10 +166,35 @@ def _state_timestamp(item):
     )
 
 
-def _merge_state_list(stored, incoming, id_key="id"):
+def cleanup_shared_states():
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    cutoff_text = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+    removed = 0
+    for account, state in SHARED_STATES.items():
+        if not isinstance(state, dict):
+            continue
+        items = state.get("parcels") or []
+        kept = []
+        for item in items:
+            timestamp = _state_timestamp(item)
+            if not timestamp or timestamp >= cutoff_text:
+                kept.append(item)
+            else:
+                removed += 1
+        state["parcels"] = kept
+    if removed:
+        sys.stdout.write(
+            "bridge: cleaned %d old parcel records\n" % removed
+        )
+        sys.stdout.flush()
+
+
+def _merge_state_list(stored, incoming, id_key="id", cleared_at=""):
     combined = {}
     for item in list(stored or []) + list(incoming or []):
         if not isinstance(item, dict) or not item.get(id_key):
+            continue
+        if cleared_at and _state_timestamp(item) < cleared_at:
             continue
         key = str(item[id_key])
         if key not in combined or _state_timestamp(item) >= _state_timestamp(combined[key]):
@@ -166,12 +205,19 @@ def _merge_state_list(stored, incoming, id_key="id"):
 def merge_shared_state(stored, incoming):
     stored = stored or {}
     incoming = incoming or {}
+    cleared_at = str(
+        stored.get("clearedAt") or incoming.get("clearedAt") or ""
+    )
     return {
         "parcels": _merge_state_list(
-            stored.get("parcels"), incoming.get("parcels")
+            stored.get("parcels"),
+            incoming.get("parcels"),
+            cleared_at=cleared_at,
         ),
         "anomalies": _merge_state_list(
-            stored.get("anomalies"), incoming.get("anomalies")
+            stored.get("anomalies"),
+            incoming.get("anomalies"),
+            cleared_at=cleared_at,
         ),
     }
 
@@ -320,6 +366,22 @@ def call_jd_get(path, cookie, user_id, app_code):
             return {"success": False, "error": f"HTTP {error.code}: {body[:200]}"}
     except Exception as error:
         return {"success": False, "error": str(error)}
+
+
+def validate_digital_cookie(cookie_text):
+    cookie_text = str(cookie_text or "").strip()
+    if not cookie_text:
+        return False
+    user_id = extract_cookie_value(cookie_text, "pin")
+    app_code = extract_cookie_value(cookie_text, "systemCode")
+    response = call_jd(
+        "/serviceOrder/queryBindShopInfo",
+        {},
+        cookie_text,
+        user_id,
+        app_code,
+    )
+    return bool(response.get("success"))
 
 
 def jd_encrypt_data(key_text, payload):
@@ -1059,15 +1121,38 @@ def query_repair(
     jdl_token,
     jdl_cookie="",
     client_id="",
+    force_cookie=False,
 ):
     if not express_no or not str(express_no).strip():
         return {"ok": False, "error": "快递单号不能为空"}
 
     client_config = CLIENT_CONFIGS.get(client_id) or {}
-    cookie = str(cookie or "").strip() or client_config.get("cookie", "") or DIGITAL_CONFIG.get("cookie", "")
-    user_id = str(user_id or "").strip() or client_config.get("userId", "") or DIGITAL_CONFIG.get("userId", "")
-    app_code = str(app_code or "").strip() or client_config.get("appCode", "") or DIGITAL_CONFIG.get("appCode", "")
-    shop_code = str(shop_code or "").strip() or client_config.get("shopCode", "") or DIGITAL_CONFIG.get("shopCode", "")
+    if force_cookie:
+        cookie = str(cookie or "").strip()
+        user_id = str(user_id or "").strip()
+        app_code = str(app_code or "").strip()
+        shop_code = str(shop_code or "").strip()
+    else:
+        cookie = (
+            str(cookie or "").strip()
+            or client_config.get("cookie", "")
+            or DIGITAL_CONFIG.get("cookie", "")
+        )
+        user_id = (
+            str(user_id or "").strip()
+            or client_config.get("userId", "")
+            or DIGITAL_CONFIG.get("userId", "")
+        )
+        app_code = (
+            str(app_code or "").strip()
+            or client_config.get("appCode", "")
+            or DIGITAL_CONFIG.get("appCode", "")
+        )
+        shop_code = (
+            str(shop_code or "").strip()
+            or client_config.get("shopCode", "")
+            or DIGITAL_CONFIG.get("shopCode", "")
+        )
     if not user_id:
         user_id = extract_cookie_value(cookie, "pin")
     if not app_code:
@@ -1260,28 +1345,35 @@ def auto_start_and_sync(
     jdl_token,
     jdl_cookie="",
     client_id="",
+    force_cookie=False,
 ):
     client_config = CLIENT_CONFIGS.get(client_id) or {}
-    cookie = (
-        str(cookie or "").strip()
-        or client_config.get("cookie", "")
-        or DIGITAL_CONFIG.get("cookie", "")
-    )
-    user_id = (
-        str(user_id or "").strip()
-        or client_config.get("userId", "")
-        or DIGITAL_CONFIG.get("userId", "")
-    )
-    app_code = (
-        str(app_code or "").strip()
-        or client_config.get("appCode", "")
-        or DIGITAL_CONFIG.get("appCode", "")
-    )
-    shop_code = (
-        str(shop_code or "").strip()
-        or client_config.get("shopCode", "")
-        or DIGITAL_CONFIG.get("shopCode", "")
-    )
+    if force_cookie:
+        cookie = str(cookie or "").strip()
+        user_id = str(user_id or "").strip()
+        app_code = str(app_code or "").strip()
+        shop_code = str(shop_code or "").strip()
+    else:
+        cookie = (
+            str(cookie or "").strip()
+            or client_config.get("cookie", "")
+            or DIGITAL_CONFIG.get("cookie", "")
+        )
+        user_id = (
+            str(user_id or "").strip()
+            or client_config.get("userId", "")
+            or DIGITAL_CONFIG.get("userId", "")
+        )
+        app_code = (
+            str(app_code or "").strip()
+            or client_config.get("appCode", "")
+            or DIGITAL_CONFIG.get("appCode", "")
+        )
+        shop_code = (
+            str(shop_code or "").strip()
+            or client_config.get("shopCode", "")
+            or DIGITAL_CONFIG.get("shopCode", "")
+        )
     if not user_id:
         user_id = extract_cookie_value(cookie, "pin")
     if not app_code:
@@ -1298,6 +1390,7 @@ def auto_start_and_sync(
         jdl_token,
         jdl_cookie,
         client_id,
+        force_cookie,
     )
     steps.append(
         {
@@ -1626,6 +1719,24 @@ def export_categories_xlsx(rows, account="admin"):
     return path
 
 
+def _cleanup_print_agents():
+    cutoff = time.time() - 30
+    for agent_id in list(PRINT_AGENTS.keys()):
+        if PRINT_AGENTS[agent_id].get("updatedAt", 0) < cutoff:
+            PRINT_AGENTS.pop(agent_id, None)
+
+
+def _get_latest_print_agent():
+    _cleanup_print_agents()
+    best = None
+    for agent in PRINT_AGENTS.values():
+        if not agent.get("path"):
+            continue
+        if best is None or agent.get("updatedAt", 0) > best.get("updatedAt", 0):
+            best = agent
+    return best
+
+
 class BridgeHandler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1653,6 +1764,49 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/health":
             self._send_json(200, {"ok": True, "message": "JD repair bridge is running"})
             return
+        if parsed.path == "/api/print-agent/find":
+            with PRINT_LOCK:
+                agent = _get_latest_print_agent()
+            if agent:
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "found": True,
+                        "path": agent.get("path", ""),
+                        "agentId": agent.get("agentId", ""),
+                    },
+                )
+            else:
+                self._send_json(200, {"ok": True, "found": False})
+            return
+        if parsed.path == "/api/print-agent/jobs":
+            query = urllib.parse.parse_qs(parsed.query)
+            agent_id = (query.get("agentId") or [""])[0].strip()
+            job = None
+            if agent_id:
+                with PRINT_LOCK:
+                    queue = PRINT_JOBS.get(agent_id) or []
+                    if queue:
+                        job = queue.pop(0)
+            self._send_json(200, {"ok": True, "job": job})
+            return
+        if parsed.path == "/api/print-agent/result":
+            query = urllib.parse.parse_qs(parsed.query)
+            job_id = (query.get("jobId") or [""])[0].strip()
+            result = None
+            if job_id:
+                with PRINT_LOCK:
+                    result = PRINT_JOB_RESULTS.get(job_id)
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "done": bool(result),
+                    "result": result,
+                },
+            )
+            return
         if parsed.path == "/api/repair/set-digital-cookie":
             query = urllib.parse.parse_qs(parsed.query)
             data_text = (query.get("data") or [""])[0]
@@ -1662,9 +1816,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "data 不是合法 JSON"})
                 return
             client_id = str(payload.get("clientId", "") or "").strip()
-            cookie_text = str(payload.get("cookie", "") or "").strip()
+            incoming_cookie = str(payload.get("cookie", "") or "").strip()
+            incoming_cookie2 = str(payload.get("cookie2", "") or "").strip()
+            cookie_text = incoming_cookie
+            cookie2_text = incoming_cookie2
+            if not cookie_text and DIGITAL_CONFIG.get("cookie"):
+                cookie_text = str(DIGITAL_CONFIG.get("cookie") or "").strip()
+            if not cookie2_text and DIGITAL_CONFIG.get("cookie2"):
+                cookie2_text = str(DIGITAL_CONFIG.get("cookie2") or "").strip()
+            if incoming_cookie and not validate_digital_cookie(incoming_cookie):
+                self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
+                return
+            if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
+                self._send_json(400, {"ok": False, "error": "商家险 Cookie 无效，未保存"})
+                return
             config_updates = {
                 "cookie": cookie_text,
+                "cookie2": cookie2_text,
                 "userId": str(payload.get("userId", "") or extract_cookie_value(cookie_text, "pin") or "").strip(),
                 "appCode": str(payload.get("appCode", "") or extract_cookie_value(cookie_text, "systemCode") or "").strip(),
                 "shopCode": str(payload.get("shopCode", "") or extract_cookie_value(cookie_text, "shopCode") or "").strip(),
@@ -1789,8 +1957,93 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        global JDL_TOKEN, JDL_COOKIE
+        global JDL_TOKEN, JDL_COOKIE, PRINT_JOB_SEQ
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/print-agent/heartbeat":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            agent_id = str(payload.get("agentId", "") or "").strip()
+            if not agent_id:
+                self._send_json(400, {"ok": False, "error": "缺少 agentId"})
+                return
+            with PRINT_LOCK:
+                PRINT_AGENTS[agent_id] = {
+                    "agentId": agent_id,
+                    "path": str(payload.get("path", "") or "").strip(),
+                    "ok": bool(payload.get("ok", True)),
+                    "updatedAt": time.time(),
+                }
+            self._send_json(200, {"ok": True})
+            return
+        if parsed.path == "/api/print-agent/print":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            order_no = str(payload.get("orderNo", "") or "").strip()
+            if not order_no:
+                self._send_json(400, {"ok": False, "error": "缺少履约单号"})
+                return
+            with PRINT_LOCK:
+                agent = _get_latest_print_agent()
+                if not agent:
+                    self._send_json(
+                        200,
+                        {
+                            "ok": False,
+                            "error": "未检测到在线打印助手，请先运行 start_print_helper_all.bat",
+                        },
+                    )
+                    return
+                PRINT_JOB_SEQ += 1
+                job_id = "PJ%d%05d" % (int(time.time()), PRINT_JOB_SEQ)
+                job = {
+                    "jobId": job_id,
+                    "orderNo": order_no,
+                    "partCode": str(payload.get("partCode", "") or "").strip(),
+                    "manualOnly": bool(payload.get("manualOnly")),
+                    "printerName": str(payload.get("printerName", "") or "").strip(),
+                    "barPrinterPath": str(
+                        payload.get("barPrinterPath", "") or ""
+                    ).strip()
+                    or agent.get("path", ""),
+                }
+                PRINT_JOBS.setdefault(agent["agentId"], []).append(job)
+                PRINT_JOB_RESULTS[job_id] = None
+                target_agent = agent["agentId"]
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "jobId": job_id,
+                    "agentId": target_agent,
+                },
+            )
+            return
+        if parsed.path == "/api/print-agent/result":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            job_id = str(payload.get("jobId", "") or "").strip()
+            if not job_id:
+                self._send_json(400, {"ok": False, "error": "缺少 jobId"})
+                return
+            with PRINT_LOCK:
+                PRINT_JOB_RESULTS[job_id] = {
+                    "ok": bool(payload.get("ok")),
+                    "output": str(payload.get("output", "") or ""),
+                }
+            self._send_json(200, {"ok": True})
+            return
         if parsed.path == "/api/print":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1803,6 +2056,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if not order_no:
                 self._send_json(400, {"ok": False, "error": "缺少履约单号"})
                 return
+            if os.name != "nt":
+                self._send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": "打印需在安装 BarPrinter.exe 的 Windows 本机桥接服务中执行，当前云服务器无法直接打印",
+                    },
+                )
+                return
             command = [
                 "powershell.exe",
                 "-NoProfile",
@@ -1813,6 +2075,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "-OrderNo",
                 order_no,
             ]
+            if part_code:
+                command += ["-PartCode", part_code]
+            if payload.get("manualOnly"):
+                command += ["-ManualOnly"]
             bar_printer_path = str(payload.get("barPrinterPath", "") or "").strip()
             if bar_printer_path:
                 command += ["-BarPrinterPath", bar_printer_path]
@@ -1821,8 +2087,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 result = subprocess.run(
                     command,
-                    capture_output=True,
-                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
                     timeout=60,
                 )
             except subprocess.TimeoutExpired:
@@ -1856,9 +2123,24 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "anomalies": [],
             }
             if payload.get("replace"):
+                cleared_at = str(
+                    payload.get("clearedAt")
+                    or stored.get("clearedAt")
+                    or ""
+                )
+                incoming_parcels = [
+                    item
+                    for item in (incoming.get("parcels") or [])
+                    if not cleared_at or _state_timestamp(item) >= cleared_at
+                ]
+                incoming_anomalies = [
+                    item
+                    for item in (incoming.get("anomalies") or [])
+                    if not cleared_at or _state_timestamp(item) >= cleared_at
+                ]
                 merged = {
-                    "parcels": incoming.get("parcels") or [],
-                    "anomalies": incoming.get("anomalies") or [],
+                    "parcels": incoming_parcels,
+                    "anomalies": incoming_anomalies,
                     "clearedAt": payload.get("clearedAt")
                     or stored.get("clearedAt")
                     or "",
@@ -1906,11 +2188,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
                 return
             client_id = str(payload.get("clientId", "") or "").strip()
+            incoming_cookie = str(payload.get("cookie", "") or "").strip()
+            incoming_cookie2 = str(payload.get("cookie2", "") or "").strip()
+            cookie_text = incoming_cookie
+            cookie2_text = incoming_cookie2
+            if not cookie_text and DIGITAL_CONFIG.get("cookie"):
+                cookie_text = str(DIGITAL_CONFIG.get("cookie") or "").strip()
+            if not cookie2_text and DIGITAL_CONFIG.get("cookie2"):
+                cookie2_text = str(DIGITAL_CONFIG.get("cookie2") or "").strip()
+            if incoming_cookie and not validate_digital_cookie(incoming_cookie):
+                self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
+                return
+            if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
+                self._send_json(400, {"ok": False, "error": "商家险 Cookie 无效，未保存"})
+                return
             config_updates = {
-                "cookie": str(payload.get("cookie", "") or "").strip(),
-                "userId": str(payload.get("userId", "") or "").strip(),
-                "appCode": str(payload.get("appCode", "") or "").strip(),
-                "shopCode": str(payload.get("shopCode", "") or "").strip(),
+                "cookie": cookie_text,
+                "cookie2": cookie2_text,
+                "userId": str(payload.get("userId", "") or extract_cookie_value(cookie_text, "pin") or "").strip(),
+                "appCode": str(payload.get("appCode", "") or extract_cookie_value(cookie_text, "systemCode") or "").strip(),
+                "shopCode": str(payload.get("shopCode", "") or extract_cookie_value(cookie_text, "shopCode") or "").strip(),
             }
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
             jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
@@ -2059,6 +2356,35 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("jdlCookie", ""),
                 payload.get("clientId", ""),
             )
+            cookie2 = str(
+                payload.get("cookie2", "") or ""
+            ).strip() or DIGITAL_CONFIG.get("cookie2", "")
+            if cookie2 and (
+                not result.get("ok")
+                or (result.get("ok") and not result.get("found"))
+                or "NotLogin" in str(result.get("error") or "")
+            ):
+                result = auto_start_and_sync(
+                    payload.get("expressNo", ""),
+                    cookie2,
+                    "",
+                    "",
+                    "",
+                    payload.get("jdlToken", ""),
+                    payload.get("jdlCookie", ""),
+                    payload.get("clientId", ""),
+                    force_cookie=True,
+                )
+                sys.stdout.write(
+                    "bridge: auto-start retry cookie2 %r ok=%s found=%s error=%r\n"
+                    % (
+                        payload.get("expressNo", ""),
+                        result.get("ok"),
+                        result.get("found"),
+                        result.get("error"),
+                    )
+                )
+                sys.stdout.flush()
             self._send_json(200, result)
             return
 
@@ -2090,6 +2416,28 @@ class BridgeHandler(BaseHTTPRequestHandler):
             jdl_cookie,
             client_id,
         )
+        cookie2 = str(payload.get("cookie2", "") or "").strip() or DIGITAL_CONFIG.get("cookie2", "")
+        if cookie2 and (
+            not result.get("ok")
+            or (result.get("ok") and not result.get("found"))
+            or "NotLogin" in str(result.get("error") or "")
+        ):
+            result = query_repair(
+                express_no,
+                cookie2,
+                "",
+                "",
+                "",
+                jdl_token,
+                jdl_cookie,
+                client_id,
+                force_cookie=True,
+            )
+            sys.stdout.write(
+                "bridge: query retry cookie2 %r ok=%s found=%s error=%r\n"
+                % (express_no, result.get("ok"), result.get("found"), result.get("error"))
+            )
+            sys.stdout.flush()
         sys.stdout.write(
             "bridge: query %r ok=%s found=%s performing=%r service=%r merchant=%r error=%r\n"
             % (
@@ -2135,6 +2483,7 @@ def main():
     load_digital_config()
     load_jdl_token()
     load_shared_states()
+    save_shared_states()
     server.serve_forever()
 
 
