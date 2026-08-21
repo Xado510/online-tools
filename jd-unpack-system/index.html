@@ -462,6 +462,29 @@
   .status-resolved { background: var(--blue-light); color: var(--blue); }
 
   .table-wrap { overflow-x: auto; }
+  .history-mode-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .parcel-slider-wrap { display: none; }
+  .parcel-slider-wrap.active { display: block; }
+  .slider-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .parcel-slider {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding: 4px 2px 10px;
+  }
+  .parcel-slider-card {
+    min-width: 280px;
+    max-width: 320px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 12px;
+  }
+  .parcel-slider-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .slider-card-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; font-size: 12px; }
+  .slider-card-grid span { color: var(--text-3); }
+  .slider-card-grid strong { text-align: right; word-break: break-all; }
+  .slider-nav { display: flex; gap: 8px; margin-top: 8px; }
   #parcelTableWrap {
     max-height: calc(100vh - 300px);
     min-height: 220px;
@@ -1085,6 +1108,10 @@
             <button class="btn" id="batchAssignBtn" type="button"><span data-icon="package"></span>批量分派</button>
             <button class="btn btn-danger" id="clearParcelsBtn" type="button"><span data-icon="x"></span>清空历史</button>
           </div>
+          <div class="history-mode-row">
+            <button class="btn btn-primary" id="historySliderBtn" type="button">滑动查看</button>
+            <button class="btn" id="historyTableBtn" type="button">表格查看</button>
+          </div>
           <div class="table-wrap" id="parcelTableWrap">
             <table>
               <thead>
@@ -1099,6 +1126,17 @@
               </thead>
               <tbody id="parcelTbody"></tbody>
             </table>
+          </div>
+          <div class="parcel-slider-wrap" id="parcelSliderWrap">
+            <div class="slider-head">
+              <strong>滑动记录</strong>
+              <span id="sliderCount">0 条</span>
+            </div>
+            <div class="parcel-slider" id="parcelSlider"></div>
+            <div class="slider-nav">
+              <button class="btn" id="sliderPrev" type="button">‹</button>
+              <button class="btn" id="sliderNext" type="button">›</button>
+            </div>
           </div>
         </section>
       </section>
@@ -2242,7 +2280,7 @@
     lookupTracking(demo.tracking);
   }
 
-  function buildParcelFromScan(forcedAnomaly = false) {
+  function buildParcelFromScan(forcedAnomaly = false, commit = true) {
     const checks = document.querySelectorAll('.item-check');
     const checkedCount = Array.from(checks).filter((node) => node.checked).length;
     const condition = document.querySelector('input[name="condition"]:checked')?.value || '完好';
@@ -2278,9 +2316,10 @@
       unpackedAt: nowIso
     };
 
+    let anomaly = null;
     if (hasAnomaly) {
       const type = forcedAnomaly ? '商品异常' : missingCount > 0 ? '商品少件' : '外包装破损';
-      state.anomalies.push({
+      anomaly = {
         id: `AX${dateNum()}${Date.now().toString().slice(-4)}`,
         parcelId: parcel.id,
         tracking: parcel.tracking,
@@ -2293,24 +2332,27 @@
         updatedAt: nowIso,
         handler: state.settings.operator,
         resolvedAt: null
-      });
+      };
+      if (commit) state.anomalies.push(anomaly);
     }
 
-    if (currentScan.__index >= 0) {
-      state.parcels[currentScan.__index] = { ...parcel, __index: undefined };
-    } else {
-      delete parcel.__index;
-      const duplicateIndex = state.parcels.findIndex((p) => parcelMatches(p, parcel));
-      if (duplicateIndex >= 0) {
-        const existing = state.parcels[duplicateIndex];
-        parcel.id = existing.id;
-        parcel.createdAt = existing.createdAt || parcel.createdAt;
-        state.parcels[duplicateIndex] = parcel;
+    if (commit) {
+      if (currentScan.__index >= 0) {
+        state.parcels[currentScan.__index] = { ...parcel, __index: undefined };
       } else {
-        state.parcels.push(parcel);
+        delete parcel.__index;
+        const duplicateIndex = state.parcels.findIndex((p) => parcelMatches(p, parcel));
+        if (duplicateIndex >= 0) {
+          const existing = state.parcels[duplicateIndex];
+          parcel.id = existing.id;
+          parcel.createdAt = existing.createdAt || parcel.createdAt;
+          state.parcels[duplicateIndex] = parcel;
+        } else {
+          state.parcels.push(parcel);
+        }
       }
     }
-    return { parcel, hasAnomaly };
+    return { parcel, hasAnomaly, anomaly };
   }
 
   function confirmUnpack(forcedAnomaly = false) {
@@ -2322,18 +2364,19 @@
       toast('该包裹已完成处理', 'error');
       return;
     }
-    const { parcel, hasAnomaly } = buildParcelFromScan(forcedAnomaly);
-    saveState();
-    triggerBarcodePrint(parcel);
-    currentScan = null;
-    document.getElementById('trackingInput').value = '';
-    renderAll();
-    toast(hasAnomaly ? `已登记异常：${parcel.tracking}` : `拆包完成：${parcel.tracking}`);
+    const { parcel, anomaly } = buildParcelFromScan(forcedAnomaly, false);
+    const orderNo = parcel.order || (parcel.jdRepair && parcel.jdRepair.performingOrderNo) || '';
+    if (!orderNo) {
+      commitParcel(parcel, anomaly);
+      return;
+    }
+    prepareBrowserPrint(parcel);
+    window.print();
+    askPrintComplete(parcel, anomaly);
   }
 
-  async function triggerBarcodePrint(parcel) {
+  function prepareBrowserPrint(parcel) {
     const orderNo = parcel.order || (parcel.jdRepair && parcel.jdRepair.performingOrderNo) || '';
-    if (!orderNo) return;
     const partCode = parcel.partBarcode || (parcel.jdRepair && parcel.jdRepair.partBarcode) || '';
     const width = parseFloat(localStorage.getItem('jd_label_width_mm') || '41') || 41;
     const height = parseFloat(localStorage.getItem('jd_label_height_mm') || '20') || 20;
@@ -2353,8 +2396,50 @@
       document.head.appendChild(pageStyle);
     }
     pageStyle.textContent = `@page { size: ${width}mm ${height}mm; margin: 0; }`;
-    window.print();
-    toast('已调用浏览器打印');
+  }
+
+  function askPrintComplete(parcel, anomaly) {
+    openModal(
+      '打印确认',
+      '<div class="detail-note">浏览器打印窗口已关闭。如果已经完成打印，请点击“已打印，完成拆包”；如果点击了取消，请选择“取消打印”。</div>',
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button class="btn btn-primary" type="button" id="printDoneBtn">已打印，完成拆包</button>' +
+        '<button class="btn" type="button" id="printCancelBtn">取消打印</button>' +
+      '</div>'
+    );
+    document.getElementById('printDoneBtn').addEventListener('click', () => {
+      closeModal();
+      commitParcel(parcel, anomaly);
+    });
+    document.getElementById('printCancelBtn').addEventListener('click', () => {
+      closeModal();
+      toast('已取消打印，包裹保持待拆包', '');
+      renderScan();
+    });
+  }
+
+  function commitParcel(parcel, anomaly) {
+    if (anomaly) state.anomalies.push(anomaly);
+    if (currentScan && currentScan.__index >= 0) {
+      state.parcels[currentScan.__index] = { ...parcel, __index: undefined };
+    } else {
+      const saved = { ...parcel };
+      delete saved.__index;
+      const duplicateIndex = state.parcels.findIndex((p) => parcelMatches(p, saved));
+      if (duplicateIndex >= 0) {
+        const existing = state.parcels[duplicateIndex];
+        saved.id = existing.id;
+        saved.createdAt = existing.createdAt || saved.createdAt;
+        state.parcels[duplicateIndex] = saved;
+      } else {
+        state.parcels.push(saved);
+      }
+    }
+    saveState();
+    currentScan = null;
+    document.getElementById('trackingInput').value = '';
+    renderAll();
+    toast(parcel.status === 'anomaly' ? `已登记异常：${parcel.tracking}` : `拆包完成：${parcel.tracking}`);
   }
 
   function openParcelDetail(id) {
@@ -2697,6 +2782,8 @@
         </tr>
       `).join('')
       : '<tr class="empty-row"><td colspan="6">没有匹配的包裹</td></tr>';
+    renderParcelSlider(list);
+    applyHistoryMode();
   }
 
   function renderAnomalies() {
@@ -2926,6 +3013,16 @@
   document.getElementById('exportCategoryBtn').addEventListener('click', exportCategoryBoard);
   document.getElementById('batchAssignBtn').addEventListener('click', batchAssignCopy);
   document.getElementById('clearParcelsBtn').addEventListener('click', clearParcels);
+  document.getElementById('historySliderBtn').addEventListener('click', () => {
+    historyMode = 'slider';
+    renderParcels();
+  });
+  document.getElementById('historyTableBtn').addEventListener('click', () => {
+    historyMode = 'table';
+    renderParcels();
+  });
+  document.getElementById('sliderPrev').addEventListener('click', () => scrollParcelSlider(-1));
+  document.getElementById('sliderNext').addEventListener('click', () => scrollParcelSlider(1));
 
   document.getElementById('parcelTbody').addEventListener('click', (event) => {
     const detailButton = event.target.closest('[data-detail-btn]');
