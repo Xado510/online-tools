@@ -46,6 +46,11 @@ LATEST_RESULTS = {}
 JDL_TOKEN = ""
 JDL_COOKIE = ""
 LAST_BARCODE_ERROR = ""
+LAST_MCS_SERVICE_NO = ""
+WRITTEN_SERVICE_LOG_MESSAGES = set()
+SERVICE_LOG_ADD_INTERVAL_SECONDS = 3.0
+SERVICE_LOG_LOCKS = {}
+SERVICE_LOG_LOCKS_GUARD = threading.Lock()
 SUMMER_CRYPTO_JS = ""
 DIGITAL_CONFIG = {
     "cookie": "",
@@ -1006,6 +1011,8 @@ def normalize_row(row):
         "performingOrderNo": find_key(row, "performingOrderNo") or find_key(row, "performingNo"),
         "serviceOrderNo": find_key(row, "serviceOrderNo"),
         "expressNo": find_key(row, "expressNo"),
+        "serviceBillNo": find_key(row, "serviceBillNo"),
+        "afsServiceBillNo": find_key(row, "afsServiceBillNo"),
         "facilitatorCode": find_key(row, "facilitatorCode"),
         "shopCode": find_key(row, "shopCode"),
         "serviceState": find_key(row, "serviceState"),
@@ -1050,7 +1057,9 @@ def query_parts_barcode(
     afs_service_bill_no="",
 ):
     global LAST_BARCODE_ERROR
+    global LAST_MCS_SERVICE_NO
     LAST_BARCODE_ERROR = ""
+    LAST_MCS_SERVICE_NO = ""
     candidates = []
     if merchant_order_no:
         candidates.append(
@@ -1106,10 +1115,237 @@ def query_parts_barcode(
         item_list = data.get("itemList") or []
         if item_list and isinstance(item_list, list):
             first = item_list[0]
-            if isinstance(first, dict) and first.get("partCode"):
-                return str(first["partCode"]).strip()
+            if isinstance(first, dict):
+                if first.get("serviceBillNo"):
+                    LAST_MCS_SERVICE_NO = str(first["serviceBillNo"]).strip()
+                if first.get("partCode"):
+                    return str(first["partCode"]).strip()
     LAST_BARCODE_ERROR = "京东物流未返回备件条码"
     return ""
+
+
+def _resolve_service_credentials(jdl_token, jdl_cookie="", client_id=""):
+    token = (
+        (jdl_token or "").strip()
+        or CLIENT_JDL_TOKENS.get(client_id, "")
+        or JDL_TOKEN
+    )
+    cookie = (
+        (jdl_cookie or "").strip()
+        or CLIENT_JDL_COOKIES.get(client_id, "")
+        or JDL_COOKIE
+    )
+    return token, cookie
+
+
+def _clean_log_message(text):
+    return str(text or "").replace("\r", " ").replace("\n", " ").strip()
+
+
+def add_service_bill_log(
+    service_bill_no,
+    message,
+    jdl_token,
+    jdl_cookie="",
+    client_id="",
+):
+    token, cookie = _resolve_service_credentials(jdl_token, jdl_cookie, client_id)
+    if not service_bill_no or not message:
+        return {"success": False, "error": "缺少服务单号或留言内容"}
+    response = call_jd_service(
+        "/mcs/log/add",
+        {
+            "serviceBillNo": str(service_bill_no).strip(),
+            "logType": 2,
+            "logMessage": str(message).strip(),
+        },
+        token,
+        cookie,
+    )
+    sys.stdout.write(
+        "bridge: service log add service=%r message=%r result=%s\n"
+        % (
+            str(service_bill_no).strip(),
+            str(message).strip()[:80],
+            json.dumps(response, ensure_ascii=False)[:1200],
+        )
+    )
+    sys.stdout.flush()
+    return response
+
+
+def _logistics_free_label(base):
+    # 延保商品详情中的“服务方式”对应关系：
+    # 1 = 谁寄谁付，备注“双向免物流：否”；
+    # 2 = 快递寄送物流费用我方承担，备注“双向免物流：是”。
+    service_fee_type = str(base.get("logisticsFeeType") or "").strip()
+    if service_fee_type in ("1", "2"):
+        return "否" if service_fee_type == "1" else "是"
+    legacy_value = str(base.get("logisticsFree") or "").strip()
+    if legacy_value in ("1", "2"):
+        return "否" if legacy_value == "1" else "是"
+    return ""
+
+
+def build_service_bill_log_messages(base):
+    messages = []
+    repair_requirement = _clean_log_message(base.get("repairRequirement"))
+    if repair_requirement:
+        messages.append("维修要求：" + repair_requirement)
+    express_no = _clean_log_message(base.get("expressNo"))
+    if express_no:
+        messages.append("快递单号：" + express_no)
+    performing = _clean_log_message(base.get("performingOrderNo"))
+    if performing:
+        messages.append("履约单号：" + performing)
+    customer_address = _clean_log_message(base.get("customerReceiveAddress"))
+    if customer_address:
+        messages.append("客户收货地址：" + customer_address)
+    logistics_label = _logistics_free_label(base)
+    if logistics_label:
+        messages.append("双向免物流：" + logistics_label)
+    custom_remark = _clean_log_message(base.get("customRemark"))
+    for custom_line in custom_remark.splitlines():
+        line_text = _clean_log_message(custom_line)
+        if line_text:
+            messages.append(line_text)
+    return messages
+
+
+def _service_bill_log_lock(service_bill_no):
+    with SERVICE_LOG_LOCKS_GUARD:
+        lock = SERVICE_LOG_LOCKS.get(service_bill_no)
+        if lock is None:
+            lock = threading.Lock()
+            SERVICE_LOG_LOCKS[service_bill_no] = lock
+        return lock
+
+
+def write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=""):
+    service_bill_no = str(base.get("serviceBillNo") or "").strip()
+    with _service_bill_log_lock(service_bill_no):
+        return _write_service_bill_logs_for_base(
+            base,
+            jdl_token,
+            jdl_cookie,
+            client_id,
+        )
+
+
+def start_service_bill_log_writes_background(
+    base,
+    jdl_token,
+    jdl_cookie="",
+    client_id="",
+):
+    def worker():
+        try:
+            write_service_bill_logs_for_base(
+                base,
+                jdl_token,
+                jdl_cookie,
+                client_id,
+            )
+        except Exception as error:
+            sys.stdout.write(
+                "bridge: background service log write failed %r\n" % (error,)
+            )
+            sys.stdout.flush()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=""):
+    service_bill_no = str(base.get("serviceBillNo") or "").strip()
+    messages = build_service_bill_log_messages(base)
+    if not service_bill_no:
+        return {"success": False, "error": "缺少展翅服务单号"}
+    if not messages:
+        return {"success": False, "error": "没有可逐条写入的留言内容"}
+
+    token, cookie = _resolve_service_credentials(jdl_token, jdl_cookie, client_id)
+    existing_messages = set()
+    try:
+        list_response = call_jd_service(
+            "/mcs/log/list",
+            {
+                "serviceBillNo": service_bill_no,
+                "logType": 2,
+                "pageIndex": 1,
+                "pageSize": 100,
+            },
+            token,
+            cookie,
+        )
+        if list_response.get("success") and isinstance(list_response.get("data"), list):
+            for item in list_response["data"]:
+                if (
+                    isinstance(item, dict)
+                    and item.get("logType") == 2
+                    and item.get("logMessage")
+                ):
+                    message_text = str(item["logMessage"]).strip()
+                    existing_messages.add(message_text)
+                    WRITTEN_SERVICE_LOG_MESSAGES.add(
+                        service_bill_no + "|" + message_text
+                    )
+    except Exception:
+        pass
+
+    results = []
+    added = 0
+    skipped = 0
+    first_error = ""
+    for index, message in enumerate(messages):
+        written_key = service_bill_no + "|" + message
+        if message in existing_messages or written_key in WRITTEN_SERVICE_LOG_MESSAGES:
+            skipped += 1
+            results.append(
+                {"message": message, "success": True, "skipped": True}
+            )
+            continue
+        if index and SERVICE_LOG_ADD_INTERVAL_SECONDS > 0:
+            time.sleep(SERVICE_LOG_ADD_INTERVAL_SECONDS)
+        response = add_service_bill_log(
+            service_bill_no,
+            message,
+            jdl_token,
+            jdl_cookie,
+            client_id,
+        )
+        ok = bool(response) and response.get("success") is True
+        error = (
+            response.get("error")
+            or response.get("msg")
+            or response.get("message")
+            or (None if ok else "添加留言失败")
+        )
+        if ok:
+            added += 1
+            WRITTEN_SERVICE_LOG_MESSAGES.add(written_key)
+        elif not first_error:
+            first_error = str(error or "添加留言失败")
+        results.append(
+            {
+                "message": message,
+                "success": ok,
+                "skipped": False,
+                "error": error,
+            }
+        )
+
+    success = all(item.get("success") for item in results)
+    summary = "已逐条写入 %d 条展翅服务单留言" % added
+    if skipped:
+        summary += "，跳过 %d 条重复内容" % skipped
+    return {
+        "success": success,
+        "message": summary,
+        "error": first_error or (None if success else "添加留言失败"),
+        "added": added,
+        "skipped": skipped,
+        "results": results,
+    }
 
 
 def query_repair(
@@ -1263,6 +1499,7 @@ def query_repair(
     detail = detail_response.get("value") or {}
     commit = detail.get("repairCommitInfoDto") or {}
     receive = detail.get("receiveMaintainOrderInfoDto") or {}
+    customer_info = detail.get("customerInfoDto") or {}
     express_list = find_key(receive, "expressInfoDtoList")
     express_no = row_info["expressNo"] or find_key(receive, "expressNo")
     if not express_no and isinstance(express_list, list) and express_list:
@@ -1289,11 +1526,13 @@ def query_repair(
         find_key(commit, "serviceBillNo")
         or find_key(receive, "serviceBillNo")
         or find_key(detail, "serviceBillNo")
+        or row_info["serviceBillNo"]
     )
     afs_service_bill_no = (
         find_key(commit, "afsServiceBillNo")
         or find_key(receive, "afsServiceBillNo")
         or find_key(detail, "afsServiceBillNo")
+        or row_info["afsServiceBillNo"]
     )
     part_barcode = query_parts_barcode(
         merchant_order_no or performing_order_no,
@@ -1303,6 +1542,8 @@ def query_repair(
         service_bill_no,
         afs_service_bill_no,
     )
+    if not service_bill_no:
+        service_bill_no = LAST_MCS_SERVICE_NO
 
     return {
         "ok": True,
@@ -1312,6 +1553,16 @@ def query_repair(
         "serviceBillNo": service_bill_no,
         "afsServiceBillNo": afs_service_bill_no,
         "serviceOrderNo": row_info["serviceOrderNo"] or find_key(commit, "serviceOrderNo"),
+        "problemDesc": find_key(commit, "problemDesc") or find_key(commit, "faultDesc") or "",
+        "repairRequirement": {
+            "1": "原厂",
+            "2": "非原厂",
+        }.get(str(find_key(commit, "performFixedStandard") or "").strip(), ""),
+        "logisticsFree": find_key(commit, "logisticalMoneyType")
+        or find_key(commit, "logisticsFreeType")
+        or "",
+        "customerName": str((customer_info.get("customerName") or "")).strip(),
+        "customerReceiveAddress": str((customer_info.get("customerReceiveAddress") or "")).strip(),
         "category": (
             find_key(commit, "outerMainSkuThridCategory")
             or find_key(commit, "outerMainSkuThirdCategory")
@@ -1345,6 +1596,7 @@ def auto_start_and_sync(
     jdl_token,
     jdl_cookie="",
     client_id="",
+    custom_remark="",
     force_cookie=False,
 ):
     client_config = CLIENT_CONFIGS.get(client_id) or {}
@@ -1402,6 +1654,8 @@ def auto_start_and_sync(
     )
     if not base.get("ok") or not base.get("found"):
         return {**base, "steps": steps}
+    if custom_remark:
+        base["customRemark"] = custom_remark
 
     detail = base.get("detail") or {}
     commit = detail.get("repairCommitInfoDto") or {}
@@ -1655,6 +1909,21 @@ def auto_start_and_sync(
     )
 
     result = {**base, "steps": steps, "startSuccess": start_success}
+
+    start_service_bill_log_writes_background(
+        base,
+        jdl_token,
+        jdl_cookie,
+        client_id,
+    )
+    service_log_result = {
+        "success": True,
+        "message": "已开始后台逐条写入展翅服务单留言，预计约15秒完成",
+        "background": True,
+    }
+    result["customerRemarkResult"] = service_log_result
+    result["serviceLogResult"] = service_log_result
+
     if start_response.get("encryptionRequired"):
         result["encryptionRequired"] = True
     if part_barcode:
@@ -1666,6 +1935,46 @@ def auto_start_and_sync(
             result["error"] = "自动开始接机失败：" + str(
                 steps[-2].get("error") or "请到京东维修页面手动操作"
             )
+    return result
+
+
+def remark_info_and_sync(
+    express_no,
+    cookie,
+    user_id,
+    app_code,
+    shop_code,
+    jdl_token,
+    jdl_cookie="",
+    client_id="",
+    custom_remark="",
+    force_cookie=False,
+):
+    base = query_repair(
+        express_no,
+        cookie,
+        user_id,
+        app_code,
+        shop_code,
+        jdl_token,
+        jdl_cookie,
+        client_id,
+        force_cookie,
+    )
+    if not base.get("ok") or not base.get("found"):
+        return base
+    if custom_remark:
+        base["customRemark"] = custom_remark
+
+    result = {**base}
+    service_log_result = write_service_bill_logs_for_base(
+        base,
+        jdl_token,
+        jdl_cookie,
+        client_id,
+    )
+    result["customerRemarkResult"] = service_log_result
+    result["serviceLogResult"] = service_log_result
     return result
 
 
@@ -2355,6 +2664,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("jdlToken", ""),
                 payload.get("jdlCookie", ""),
                 payload.get("clientId", ""),
+                payload.get("customRemark", ""),
             )
             cookie2 = str(
                 payload.get("cookie2", "") or ""
@@ -2373,12 +2683,63 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     payload.get("jdlToken", ""),
                     payload.get("jdlCookie", ""),
                     payload.get("clientId", ""),
+                    payload.get("customRemark", ""),
                     force_cookie=True,
                 )
                 sys.stdout.write(
                     "bridge: auto-start retry cookie2 %r ok=%s found=%s error=%r\n"
                     % (
                         payload.get("expressNo", ""),
+                        result.get("ok"),
+                        result.get("found"),
+                        result.get("error"),
+                    )
+                )
+                sys.stdout.flush()
+            self._send_json(200, result)
+            return
+
+        if parsed.path == "/api/repair/remark-info":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            result = remark_info_and_sync(
+                payload.get("expressNo", ""),
+                payload.get("cookie", ""),
+                payload.get("userId", ""),
+                payload.get("appCode", ""),
+                payload.get("shopCode", ""),
+                payload.get("jdlToken", ""),
+                payload.get("jdlCookie", ""),
+                payload.get("clientId", ""),
+                payload.get("customRemark", ""),
+            )
+            cookie2 = str(
+                payload.get("cookie2", "") or ""
+            ).strip() or DIGITAL_CONFIG.get("cookie2", "")
+            if cookie2 and (
+                not result.get("ok")
+                or (result.get("ok") and not result.get("found"))
+                or "NotLogin" in str(result.get("error") or "")
+            ):
+                result = remark_info_and_sync(
+                    payload.get("expressNo", ""),
+                    cookie2,
+                    "",
+                    "",
+                    "",
+                    payload.get("jdlToken", ""),
+                    payload.get("jdlCookie", ""),
+                    payload.get("clientId", ""),
+                    payload.get("customRemark", ""),
+                    force_cookie=True,
+                )
+                sys.stdout.write(
+                    "bridge: remark-info retry cookie2 ok=%s found=%s error=%r\n"
+                    % (
                         result.get("ok"),
                         result.get("found"),
                         result.get("error"),
