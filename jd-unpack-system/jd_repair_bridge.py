@@ -42,6 +42,8 @@ DEFAULT_BAR_PRINTER = (
 JD_BASE = "https://baozang-out.jd.com"
 JD_SERVICE_BASE = "https://jdservice.jdl.com"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+API_KEY_FILE = os.path.join(ROOT_DIR, "api_key.txt")
+API_KEYS = set()
 LATEST_RESULTS = {}
 JDL_TOKEN = ""
 JDL_COOKIE = ""
@@ -61,6 +63,7 @@ DIGITAL_CONFIG = {
 }
 DIGITAL_CONFIG_FILE = os.path.join(ROOT_DIR, "digital_config.json")
 JDL_TOKEN_FILE = os.path.join(ROOT_DIR, "jdl_token.json")
+CLIENT_CONFIG_FILE = os.path.join(ROOT_DIR, "client_configs.json")
 CLIENT_CONFIGS = {}
 CLIENT_JDL_TOKENS = {}
 CLIENT_JDL_COOKIES = {}
@@ -141,6 +144,72 @@ def save_jdl_token():
         pass
 
 
+def load_client_configs():
+    try:
+        with open(CLIENT_CONFIG_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            digital = data.get("digital")
+            if isinstance(digital, dict):
+                CLIENT_CONFIGS.update(digital)
+            tokens = data.get("jdlTokens")
+            if isinstance(tokens, dict):
+                CLIENT_JDL_TOKENS.update(tokens)
+            cookies = data.get("jdlCookies")
+            if isinstance(cookies, dict):
+                CLIENT_JDL_COOKIES.update(cookies)
+    except Exception:
+        pass
+
+
+def save_client_configs():
+    try:
+        with open(CLIENT_CONFIG_FILE, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "digital": CLIENT_CONFIGS,
+                    "jdlTokens": CLIENT_JDL_TOKENS,
+                    "jdlCookies": CLIENT_JDL_COOKIES,
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
+    except Exception:
+        pass
+
+
+def apply_settings_update(
+    client_id,
+    config_updates=None,
+    jdl_token=None,
+    jdl_cookie=None,
+):
+    global JDL_TOKEN, JDL_COOKIE
+    if client_id:
+        if config_updates:
+            CLIENT_CONFIGS[client_id] = {
+                **(CLIENT_CONFIGS.get(client_id) or {}),
+                **config_updates,
+            }
+        if jdl_token is not None:
+            CLIENT_JDL_TOKENS[client_id] = jdl_token
+        if jdl_cookie is not None:
+            CLIENT_JDL_COOKIES[client_id] = jdl_cookie
+        save_client_configs()
+        return
+
+    if config_updates:
+        DIGITAL_CONFIG.update(config_updates)
+        save_digital_config()
+    if jdl_token is not None:
+        JDL_TOKEN = jdl_token
+    if jdl_cookie is not None:
+        JDL_COOKIE = jdl_cookie
+    if jdl_token is not None or jdl_cookie is not None:
+        save_jdl_token()
+
+
 def load_shared_states():
     try:
         with open(SHARED_STATE_FILE, encoding="utf-8") as handle:
@@ -156,6 +225,17 @@ def save_shared_states():
     try:
         with open(SHARED_STATE_FILE, "w", encoding="utf-8") as handle:
             json.dump(SHARED_STATES, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def load_api_keys():
+    try:
+        with open(API_KEY_FILE, encoding="utf-8") as handle:
+            for raw_line in handle:
+                key = raw_line.strip()
+                if key and len(key) >= 8:
+                    API_KEYS.add(key)
     except Exception:
         pass
 
@@ -214,6 +294,11 @@ def merge_shared_state(stored, incoming):
         stored.get("clearedAt") or incoming.get("clearedAt") or ""
     )
     return {
+        "schemaVersion": int(
+            stored.get("schemaVersion")
+            or incoming.get("schemaVersion")
+            or 2
+        ),
         "parcels": _merge_state_list(
             stored.get("parcels"),
             incoming.get("parcels"),
@@ -975,10 +1060,9 @@ def call_jd_service(path, payload, jdl_token, jdl_cookie=""):
         "login-type": "2",
         "X-Requested-With": "XMLHttpRequest",
     }
-    token_value = (jdl_token or "").strip() or JDL_TOKEN
+    token_value = (jdl_token or "").strip()
     cookie_value = (
         (jdl_cookie or "").strip().replace("\r", "").replace("\n", "")
-        or JDL_COOKIE
     )
     if token_value:
         headers["X-Access-Token"] = token_value
@@ -1071,16 +1155,7 @@ def query_parts_barcode(
         candidates.append({"afsServiceBillNo": str(afs_service_bill_no).strip()})
     if not candidates:
         return ""
-    token = (
-        (jdl_token or "").strip()
-        or CLIENT_JDL_TOKENS.get(client_id, "")
-        or JDL_TOKEN
-    )
-    cookie = (
-        (jdl_cookie or "").strip()
-        or CLIENT_JDL_COOKIES.get(client_id, "")
-        or JDL_COOKIE
-    )
+    token, cookie = _resolve_service_credentials(jdl_token, jdl_cookie, client_id)
     for candidate in candidates:
         response = call_jd_service(
             "/spcapi/mcsServiceBill/page",
@@ -1125,16 +1200,11 @@ def query_parts_barcode(
 
 
 def _resolve_service_credentials(jdl_token, jdl_cookie="", client_id=""):
-    token = (
-        (jdl_token or "").strip()
-        or CLIENT_JDL_TOKENS.get(client_id, "")
-        or JDL_TOKEN
-    )
-    cookie = (
-        (jdl_cookie or "").strip()
-        or CLIENT_JDL_COOKIES.get(client_id, "")
-        or JDL_COOKIE
-    )
+    token = (jdl_token or "").strip() or CLIENT_JDL_TOKENS.get(client_id, "")
+    cookie = (jdl_cookie or "").strip() or CLIENT_JDL_COOKIES.get(client_id, "")
+    if not client_id:
+        token = token or JDL_TOKEN
+        cookie = cookie or JDL_COOKIE
     return token, cookie
 
 
@@ -1304,8 +1374,6 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
                 {"message": message, "success": True, "skipped": True}
             )
             continue
-        if index and SERVICE_LOG_ADD_INTERVAL_SECONDS > 0:
-            time.sleep(SERVICE_LOG_ADD_INTERVAL_SECONDS)
         response = add_service_bill_log(
             service_bill_no,
             message,
@@ -2050,7 +2118,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Key")
         self.send_header("Cache-Control", "no-store")
 
     def _send_json(self, status, payload):
@@ -2062,6 +2130,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _is_authorized(self, parsed):
+        provided = str(self.headers.get("X-Api-Key") or "").strip()
+        if not provided:
+            query = urllib.parse.parse_qs(parsed.query)
+            provided = (query.get("apiKey") or [""])[0].strip()
+        return provided in API_KEYS
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._cors()
@@ -2072,6 +2147,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
             self._send_json(200, {"ok": True, "message": "JD repair bridge is running"})
+            return
+        if parsed.path.startswith("/api/") and not self._is_authorized(parsed):
+            self._send_json(401, {"ok": False, "error": "Unauthorized"})
             return
         if parsed.path == "/api/print-agent/find":
             with PRINT_LOCK:
@@ -2136,9 +2214,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if incoming_cookie and not validate_digital_cookie(incoming_cookie):
                 self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
                 return
+            cookie2_warning = ""
             if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
-                self._send_json(400, {"ok": False, "error": "商家险 Cookie 无效，未保存"})
-                return
+                cookie2_warning = "商家险 Cookie 无效，已忽略，其余配置照常保存"
+                incoming_cookie2 = ""
+                cookie2_text = ""
             config_updates = {
                 "cookie": cookie_text,
                 "cookie2": cookie2_text,
@@ -2149,24 +2229,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
             jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
             if jdl_token or jdl_cookie:
-                if jdl_token:
-                    JDL_TOKEN = jdl_token
-                if jdl_cookie:
-                    JDL_COOKIE = jdl_cookie
-                if client_id:
-                    if jdl_token:
-                        CLIENT_JDL_TOKENS[client_id] = jdl_token
-                    if jdl_cookie:
-                        CLIENT_JDL_COOKIES[client_id] = jdl_cookie
-                save_jdl_token()
-            DIGITAL_CONFIG.update(config_updates)
-            if client_id:
-                CLIENT_CONFIGS[client_id] = {
-                    **(CLIENT_CONFIGS.get(client_id) or {}),
-                    **config_updates,
-                }
-            save_digital_config()
-            self._send_json(200, {"ok": True, "message": "OK"})
+                apply_settings_update(
+                    client_id,
+                    config_updates=config_updates,
+                    jdl_token=jdl_token,
+                    jdl_cookie=jdl_cookie,
+                )
+            else:
+                apply_settings_update(client_id, config_updates=config_updates)
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "message": "OK",
+                    "warning": cookie2_warning,
+                },
+            )
             return
         if parsed.path == "/api/repair/set-jdl-token":
             query = urllib.parse.parse_qs(parsed.query)
@@ -2180,18 +2258,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             token = str(payload.get("jdlToken", "") or "").strip()
             cookie = str(payload.get("jdlCookie", "") or "").strip()
             if token or cookie:
-                JDL_TOKEN = token
-                JDL_COOKIE = cookie
-                if client_id:
-                    CLIENT_JDL_TOKENS[client_id] = token
-                    CLIENT_JDL_COOKIES[client_id] = cookie
-                save_jdl_token()
+                apply_settings_update(
+                    client_id,
+                    jdl_token=token,
+                    jdl_cookie=cookie,
+                )
             self._send_json(
                 200,
                 {
                     "ok": True,
                     "message": "OK",
-                    "configured": bool(JDL_TOKEN or JDL_COOKIE),
+                    "configured": bool(
+                        (CLIENT_JDL_TOKENS.get(client_id) if client_id else JDL_TOKEN)
+                        or (CLIENT_JDL_COOKIES.get(client_id) if client_id else JDL_COOKIE)
+                    ),
                 },
             )
             return
@@ -2243,6 +2323,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "account": account,
                     "state": SHARED_STATES.get(account) or {
+                        "schemaVersion": 2,
                         "parcels": [],
                         "anomalies": [],
                     },
@@ -2268,6 +2349,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         global JDL_TOKEN, JDL_COOKIE, PRINT_JOB_SEQ
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/api/") and not self._is_authorized(parsed):
+            self._send_json(401, {"ok": False, "error": "Unauthorized"})
+            return
+        if parsed.path == "/api/debug/ingest":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length).decode("utf-8", "ignore")
+            except Exception:
+                raw = ""
+            try:
+                with open(
+                    os.path.join(ROOT_DIR, "captured_requests.log"),
+                    "a",
+                    encoding="utf-8",
+                ) as handle:
+                    handle.write(datetime.datetime.now().isoformat() + " " + raw + "\n")
+            except Exception:
+                pass
+            self._send_json(200, {"ok": True})
+            return
         if parsed.path == "/api/print-agent/heartbeat":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2448,6 +2549,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     if not cleared_at or _state_timestamp(item) >= cleared_at
                 ]
                 merged = {
+                    "schemaVersion": int(
+                        incoming.get("schemaVersion")
+                        or stored.get("schemaVersion")
+                        or 2
+                    ),
                     "parcels": incoming_parcels,
                     "anomalies": incoming_anomalies,
                     "clearedAt": payload.get("clearedAt")
@@ -2508,9 +2614,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if incoming_cookie and not validate_digital_cookie(incoming_cookie):
                 self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
                 return
+            cookie2_warning = ""
             if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
-                self._send_json(400, {"ok": False, "error": "商家险 Cookie 无效，未保存"})
-                return
+                cookie2_warning = "商家险 Cookie 无效，已忽略，其余配置照常保存"
+                incoming_cookie2 = ""
+                cookie2_text = ""
             config_updates = {
                 "cookie": cookie_text,
                 "cookie2": cookie2_text,
@@ -2521,29 +2629,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
             jdl_token = str(payload.get("jdlToken", "") or "").strip()
             jdl_cookie = str(payload.get("jdlCookie", "") or "").strip()
             if jdl_token or jdl_cookie:
-                if jdl_token:
-                    JDL_TOKEN = jdl_token
-                if jdl_cookie:
-                    JDL_COOKIE = jdl_cookie
-                if client_id:
-                    if jdl_token:
-                        CLIENT_JDL_TOKENS[client_id] = jdl_token
-                    if jdl_cookie:
-                        CLIENT_JDL_COOKIES[client_id] = jdl_cookie
-                save_jdl_token()
-            DIGITAL_CONFIG.update(config_updates)
-            if client_id:
-                CLIENT_CONFIGS[client_id] = {
-                    **(CLIENT_CONFIGS.get(client_id) or {}),
-                    **config_updates,
-                }
-            save_digital_config()
+                apply_settings_update(
+                    client_id,
+                    config_updates=config_updates,
+                    jdl_token=jdl_token,
+                    jdl_cookie=jdl_cookie,
+                )
+            else:
+                apply_settings_update(client_id, config_updates=config_updates)
             self._send_json(
                 200,
                 {
                     "ok": True,
-                    "configured": bool(DIGITAL_CONFIG["cookie"]),
+                    "configured": bool(
+                        (CLIENT_CONFIGS.get(client_id) or {}).get("cookie")
+                        if client_id
+                        else DIGITAL_CONFIG["cookie"]
+                    ),
                     "message": "京东维修登录信息已保存到本地桥接服务",
+                    "warning": cookie2_warning,
                 },
             )
             return
@@ -2558,17 +2662,19 @@ class BridgeHandler(BaseHTTPRequestHandler):
             client_id = str(payload.get("clientId", "") or "").strip()
             token = str(payload.get("jdlToken", "") or "").strip()
             cookie = str(payload.get("jdlCookie", "") or "").strip()
-            JDL_TOKEN = token
-            JDL_COOKIE = cookie
-            save_jdl_token()
-            if client_id:
-                CLIENT_JDL_TOKENS[client_id] = token
-                CLIENT_JDL_COOKIES[client_id] = cookie
+            apply_settings_update(
+                client_id,
+                jdl_token=token,
+                jdl_cookie=cookie,
+            )
             self._send_json(
                 200,
                 {
                     "ok": True,
-                    "configured": bool(JDL_TOKEN or JDL_COOKIE),
+                    "configured": bool(
+                        (CLIENT_JDL_TOKENS.get(client_id) if client_id else JDL_TOKEN)
+                        or (CLIENT_JDL_COOKIES.get(client_id) if client_id else JDL_COOKIE)
+                    ),
                     "message": "京东物流 Token 已保存到本地桥接服务",
                 },
             )
@@ -2843,7 +2949,9 @@ def main():
         print(f"LAN: http://{ip}:{port}", flush=True)
     load_digital_config()
     load_jdl_token()
+    load_client_configs()
     load_shared_states()
+    load_api_keys()
     save_shared_states()
     server.serve_forever()
 
