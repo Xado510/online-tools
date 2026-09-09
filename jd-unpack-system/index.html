@@ -1206,6 +1206,7 @@
   const STABLE_API_BASE = 'http://8.140.237.92:9090';
   const CLOUD_API_BASE = 'http://8.140.237.92:9090';
   const DEFAULT_API_BASE = 'http://8.140.237.92:9090';
+  const API_KEY = '985dc24a47772c895613101bafb60d7c';
   function detectApiBase() {
     const host = location.hostname;
     if (['localhost', '127.0.0.1', '::1'].includes(host)) {
@@ -1522,7 +1523,8 @@
 
   function apiUrl(path) {
     const base = RUNTIME_API_BASE.replace(/\/+$/, '');
-    return base + path;
+    const separator = path.includes('?') ? '&' : '?';
+    return base + path + separator + 'apiKey=' + encodeURIComponent(API_KEY);
   }
 
   function bridgeOrigin() {
@@ -1973,7 +1975,7 @@
       '  const payload = JSON.stringify({tracking:expressNo.toUpperCase(),result:result,clientId});',
       '  const form = document.createElement("form");',
       '  form.method = "POST";',
-      '  form.action = bridge + "/api/repair/import";',
+      '  form.action = bridge + "/api/repair/import?apiKey=985dc24a47772c895613101bafb60d7c";',
       '  const input = document.createElement("input");',
       '  input.type = "hidden";',
       '  input.name = "data";',
@@ -1997,7 +1999,7 @@
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
       '  const plain = JSON.stringify({jdlToken:token,jdlCookie,clientId});',
       '  const data = encodeURIComponent(plain);',
-      '  location.href = bridge + "/api/repair/set-jdl-token?data=" + data;',
+      '  location.href = bridge + "/api/repair/set-jdl-token?data=" + data + "&apiKey=985dc24a47772c895613101bafb60d7c";',
       '  // 页面跳到 OK 后按返回，回到拆包系统重新查询',
       '})();'
     ].join('\n');
@@ -2021,7 +2023,7 @@
       '  facilitatorCode = shopRow.facilitatorCode || "";',
       '  const shopName = shopRow.shopName || shopRow.name || "";',
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
-      '  try { await fetch(bridge + "/api/repair/set-digital-cookie", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookie:document.cookie,userId:userId,appCode:localStorage.getItem("systemCode") || "",shopCode:shopCode,clientId})}); } catch (e) {}',
+      '  try { await fetch(bridge + "/api/repair/set-digital-cookie?apiKey=985dc24a47772c895613101bafb60d7c", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookie:document.cookie,userId:userId,appCode:localStorage.getItem("systemCode") || "",shopCode:shopCode,clientId})}); } catch (e) {}',
       '  const query = {expressNo: expressNo.toUpperCase()};',
       '  if (shopCode) query.shopCode = shopCode;',
       '  const list = await fetch("https://baozang-out.jd.com/serviceOrder/queryFacilitatorOrderByStateAndCode", {method:"POST",credentials:"include",headers:headers,body:JSON.stringify({pageIndex:1,pageSize:10,query:query})}).then(r => r.json());',
@@ -2038,7 +2040,7 @@
       '  const perfMap = {"01":"维修","REPAIR":"维修","02":"换新","CHANGE_NEW":"换新","05":"补贴","SUBSIDY":"补贴","08":"退货","SALES_RETURN":"退货","10":"增值服务","ADD_VALUE":"增值服务","11":"服务中台","SERVICE_PLATFORM_THIRD_PART_RIGHT":"服务中台"};',
       '  const performingModel = commit.performanceTypeEnum === "ADD_VALUE" || commit.performanceTypeEnum === "10" ? (commit.leafPerformingModelName || "增值服务") : (perfMap[commit.performanceTypeEnum] || commit.leafPerformingModelName || commit.performanceTypeEnum || "未知状态");',
       '  const result = {ok:true,found:true,tracking:expressNo.toUpperCase(),performingOrderNo:commit.performingOrderNo || row.performingOrderNo || row.performingNo,serviceOrderNo:row.serviceOrderNo || commit.serviceOrderNo,category:commit.outerMainSkuThridCategory || commit.outerMainSkuThirdCategory,expressNo:expressNoValue,productName:commit.outerMainSkuName || commit.outerSkuName || row.outerMainSkuName || row.outerSkuName,sku:commit.outerSku || row.outerSku,brand:commit.outerMainSkuBrand,model:commit.mainSkuModel,performingModel:performingModel,shopName:shopName,detail:detail.value};',
-      '  await fetch(bridge + "/api/repair/import", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tracking:expressNo.toUpperCase(),result:result})});',
+      '  await fetch(bridge + "/api/repair/import?apiKey=985dc24a47772c895613101bafb60d7c", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tracking:expressNo.toUpperCase(),result:result})});',
       '  alert("已发送到拆包系统");',
       '})();'
     ].join('\n');
@@ -2089,7 +2091,7 @@
       '  const jdlCookie = document.cookie;',
       '  if (!token && !jdlCookie) { alert("未找到 pin，请确认已登录 jdservice.jdl.com"); return; }',
       '  const clientId = localStorage.getItem("jd_client_id") || "";',
-      '  const r = await fetch(bridge + "/api/repair/set-jdl-token", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jdlToken:token,jdlCookie,clientId})});',
+      '  const r = await fetch(bridge + "/api/repair/set-jdl-token?apiKey=985dc24a47772c895613101bafb60d7c", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jdlToken:token,jdlCookie,clientId})});',
       '  const d = await r.json();',
       '  alert(d.ok ? "已自动配置京东物流 Token" : "配置失败：" + (d.error || ""));',
       '})();'
