@@ -1244,35 +1244,86 @@ def add_service_bill_log(
     return response
 
 
+def _service_fee_code(base):
+    # 延保商品详情/服务单详情里的“服务方式”：
+    # 1 = 谁寄谁付；2 = 快递寄送物流费用我方承担。
+    code = str(base.get("logisticsFeeType") or "").strip()
+    if code not in ("1", "2"):
+        code = str(base.get("logisticsFree") or "").strip()
+    return code
+
+
+def _service_fee_remark(base):
+    code = _service_fee_code(base)
+    if code == "1":
+        return "谁寄谁付"
+    if code == "2":
+        return "快递费我方承担"
+    return ""
+
+
 def _logistics_free_label(base):
-    # 延保商品详情中的“服务方式”对应关系：
-    # 1 = 谁寄谁付，备注“双向免物流：否”；
-    # 2 = 快递寄送物流费用我方承担，备注“双向免物流：是”。
-    service_fee_type = str(base.get("logisticsFeeType") or "").strip()
-    if service_fee_type in ("1", "2"):
-        return "否" if service_fee_type == "1" else "是"
-    legacy_value = str(base.get("logisticsFree") or "").strip()
-    if legacy_value in ("1", "2"):
-        return "否" if legacy_value == "1" else "是"
+    code = _service_fee_code(base)
+    if code == "1":
+        return "否"
+    if code == "2":
+        return "是"
+    return ""
+
+
+def _official_system_queryable(base):
+    code = str(base.get("whetherWarranty") or "").strip()
+    if not code:
+        detail = base.get("detail") or {}
+        code = str(
+            find_key(detail, "whetherWarranty")
+            or find_key(detail, "officialSystemQuery")
+            or ""
+        ).strip()
+    return code.lower() in ("1", "true", "yes", "是")
+
+
+def _repair_requirement_remark(base):
+    # 延保商品详情/服务单详情里的“产品维修要求”：
+    # performFixedStandard=1 使用原厂配件；2 使用非厂家部件。
+    text = _clean_log_message(base.get("repairRequirement"))
+    if text and _official_system_queryable(base):
+        return "铂慧拆，率盛原厂配件，不影响厂保，官方系统可查"
+    if "非原厂" in text or "非厂家部件" in text:
+        return "铂慧拆，率盛非原厂配件，影响厂保"
+    if "原厂" in text or "厂家标准" in text:
+        return "铂慧拆，率盛原厂配件，不影响厂保"
     return ""
 
 
 def build_service_bill_log_messages(base):
     messages = []
-    repair_requirement = _clean_log_message(base.get("repairRequirement"))
-    if repair_requirement:
-        messages.append("维修要求：" + repair_requirement)
+    repair_remark = _repair_requirement_remark(base)
+    if repair_remark:
+        messages.append(repair_remark)
     express_no = _clean_log_message(base.get("expressNo"))
-    if express_no:
-        messages.append("快递单号：" + express_no)
     performing = _clean_log_message(base.get("performingOrderNo"))
+    main_order_no = _clean_log_message(base.get("mainGoodsOrderNo"))
+    order_parts = []
     if performing:
-        messages.append("履约单号：" + performing)
+        order_parts.append("履约单号：" + performing)
+    if express_no:
+        order_parts.append("快递单号：" + express_no)
+    if main_order_no:
+        order_parts.append("主商品订单号：" + main_order_no)
+    if order_parts:
+        messages.append("，".join(order_parts))
     customer_address = _clean_log_message(base.get("customerReceiveAddress"))
     if customer_address:
         messages.append("客户收货地址：" + customer_address)
+    service_fee_remark = _service_fee_remark(base)
     logistics_label = _logistics_free_label(base)
-    if logistics_label:
+    if service_fee_remark:
+        fee_part = service_fee_remark
+        if logistics_label:
+            fee_part += "，双向免物流：" + logistics_label
+        messages.append(fee_part)
+    elif logistics_label:
         messages.append("双向免物流：" + logistics_label)
     custom_remark = _clean_log_message(base.get("customRemark"))
     for custom_line in custom_remark.splitlines():
@@ -1366,6 +1417,7 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
     added = 0
     skipped = 0
     first_error = ""
+    last_add_attempted = False
     for index, message in enumerate(messages):
         written_key = service_bill_no + "|" + message
         if message in existing_messages or written_key in WRITTEN_SERVICE_LOG_MESSAGES:
@@ -1374,6 +1426,9 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
                 {"message": message, "success": True, "skipped": True}
             )
             continue
+        if last_add_attempted:
+            time.sleep(SERVICE_LOG_ADD_INTERVAL_SECONDS)
+        last_add_attempted = True
         response = add_service_bill_log(
             service_bill_no,
             message,
@@ -1618,6 +1673,17 @@ def query_repair(
         "found": True,
         "performingOrderNo": performing_order_no,
         "merchantOrderNo": merchant_order_no,
+        "mainGoodsOrderNo": (
+            find_key(commit, "outerMainOrderNo")
+            or find_key(commit, "mainGoodsOrderNo")
+            or find_key(receive, "outerMainOrderNo")
+            or find_key(receive, "mainGoodsOrderNo")
+            or find_key(detail, "outerMainOrderNo")
+            or find_key(detail, "mainGoodsOrderNo")
+            or find_key(row, "outerMainOrderNo")
+            or find_key(row, "mainGoodsOrderNo")
+            or ""
+        ),
         "serviceBillNo": service_bill_no,
         "afsServiceBillNo": afs_service_bill_no,
         "serviceOrderNo": row_info["serviceOrderNo"] or find_key(commit, "serviceOrderNo"),
@@ -1626,6 +1692,13 @@ def query_repair(
             "1": "原厂",
             "2": "非原厂",
         }.get(str(find_key(commit, "performFixedStandard") or "").strip(), ""),
+        "whetherWarranty": (
+            find_key(commit, "whetherWarranty")
+            or find_key(receive, "whetherWarranty")
+            or find_key(detail, "whetherWarranty")
+            or find_key(row, "whetherWarranty")
+            or ""
+        ),
         "logisticsFree": find_key(commit, "logisticalMoneyType")
         or find_key(commit, "logisticsFreeType")
         or "",
