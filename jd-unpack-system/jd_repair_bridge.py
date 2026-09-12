@@ -1,12 +1,18 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import gzip
+import hashlib
 import json
 import mimetypes
 import os
+import re
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import datetime
@@ -50,9 +56,28 @@ JDL_COOKIE = ""
 LAST_BARCODE_ERROR = ""
 LAST_MCS_SERVICE_NO = ""
 WRITTEN_SERVICE_LOG_MESSAGES = set()
-SERVICE_LOG_ADD_INTERVAL_SECONDS = 3.0
+SERVICE_LOG_ADD_INTERVAL_SECONDS = 5.0
+SERVICE_LOG_MAX_ATTEMPTS = 2
+SERVICE_LOG_RETRY_DELAYS = (2.0,)
+SERVICE_LOG_CREDENTIAL_LOCKS = {}
+SERVICE_LOG_CREDENTIAL_LAST_WRITE = {}
+SERVICE_LOG_CREDENTIAL_GUARD = threading.Lock()
 SERVICE_LOG_LOCKS = {}
 SERVICE_LOG_LOCKS_GUARD = threading.Lock()
+SERVICE_LOG_TASKS = {}
+SERVICE_LOG_TASKS_GUARD = threading.Lock()
+SERVICE_LOG_TASK_TTL_SECONDS = 3600
+BAOZANG_REMARK_INTERVAL_SECONDS = 0.6
+BAOZANG_REMARK_LOCKS = {}
+BAOZANG_REMARK_LAST_WRITE = {}
+BAOZANG_REMARK_GUARD = threading.Lock()
+BAOZANG_ORDER_LOCKS = {}
+REPAIR_STANDARD_CACHE = {}
+REPAIR_STANDARD_CACHE_LOADED = False
+REPAIR_STANDARD_LOCK = threading.Lock()
+REPAIR_STANDARD_CACHE_FILE = os.path.join(ROOT_DIR, "repair_standard_cache.json")
+REPAIR_OCR_WORKERS = 4
+REPAIR_OCR_TIMEOUT_SECONDS = 30.0
 SUMMER_CRYPTO_JS = ""
 DIGITAL_CONFIG = {
     "cookie": "",
@@ -1050,7 +1075,7 @@ def call_jd_encrypted(path, payload, cookie, user_id, app_code):
         return {"success": False, "error": str(error)}
 
 
-def call_jd_service(path, payload, jdl_token, jdl_cookie=""):
+def call_jd_service(path, payload, jdl_token, jdl_cookie="", timeout=25):
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -1077,7 +1102,7 @@ def call_jd_service(path, payload, jdl_token, jdl_cookie=""):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=25) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = decode_body(response.read(), response.headers)
             return json.loads(body)
     except urllib.error.HTTPError as error:
@@ -1220,6 +1245,9 @@ def add_service_bill_log(
     client_id="",
 ):
     token, cookie = _resolve_service_credentials(jdl_token, jdl_cookie, client_id)
+    credential_fingerprint = hashlib.sha256(
+        (str(token or "") + "\n" + str(cookie or "")).encode("utf-8")
+    ).hexdigest()[:12]
     if not service_bill_no or not message:
         return {"success": False, "error": "缺少服务单号或留言内容"}
     response = call_jd_service(
@@ -1231,10 +1259,13 @@ def add_service_bill_log(
         },
         token,
         cookie,
+        8,
     )
     sys.stdout.write(
-        "bridge: service log add service=%r message=%r result=%s\n"
+        "bridge: service log add client=%r cred=%s service=%r message=%r result=%s\n"
         % (
+            str(client_id or ""),
+            credential_fingerprint,
             str(service_bill_no).strip(),
             str(message).strip()[:80],
             json.dumps(response, ensure_ascii=False)[:1200],
@@ -1242,6 +1273,98 @@ def add_service_bill_log(
     )
     sys.stdout.flush()
     return response
+
+
+def _service_log_retryable(response):
+    if not isinstance(response, dict):
+        return True
+    response_text = json.dumps(response, ensure_ascii=False).lower()
+    permanent_markers = (
+        "缺少服务单号",
+        "缺少留言",
+        "参数错误",
+        "invalid parameter",
+        "notlogin",
+        "未登录",
+        "无权限",
+        "用户不在职",
+        "请联系管理员",
+        "重复",
+        "已存在",
+    )
+    return not any(marker in response_text for marker in permanent_markers)
+
+
+def _service_log_identity_error(response):
+    response_text = json.dumps(response or {}, ensure_ascii=False).lower()
+    return any(
+        marker in response_text
+        for marker in ("用户不在职", "无权限", "未登录", "请联系管理员")
+    )
+
+
+def add_service_bill_log_with_retry(
+    service_bill_no,
+    message,
+    jdl_token,
+    jdl_cookie="",
+    client_id="",
+):
+    token, cookie = _resolve_service_credentials(jdl_token, jdl_cookie, client_id)
+    credential_fingerprint = hashlib.sha256(
+        (str(token or "") + "\n" + str(cookie or "")).encode("utf-8")
+    ).hexdigest()[:12]
+    with SERVICE_LOG_CREDENTIAL_GUARD:
+        credential_lock = SERVICE_LOG_CREDENTIAL_LOCKS.get(credential_fingerprint)
+        if credential_lock is None:
+            credential_lock = threading.Lock()
+            SERVICE_LOG_CREDENTIAL_LOCKS[credential_fingerprint] = credential_lock
+
+    last_response = None
+    attempts = []
+    for attempt in range(1, SERVICE_LOG_MAX_ATTEMPTS + 1):
+        with credential_lock:
+            with SERVICE_LOG_CREDENTIAL_GUARD:
+                last_write_at = SERVICE_LOG_CREDENTIAL_LAST_WRITE.get(
+                    credential_fingerprint,
+                    0.0,
+                )
+            elapsed = time.monotonic() - last_write_at
+            wait_seconds = SERVICE_LOG_ADD_INTERVAL_SECONDS - elapsed
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+            response = add_service_bill_log(
+                service_bill_no,
+                message,
+                jdl_token,
+                jdl_cookie,
+                client_id,
+            )
+            with SERVICE_LOG_CREDENTIAL_GUARD:
+                SERVICE_LOG_CREDENTIAL_LAST_WRITE[credential_fingerprint] = (
+                    time.monotonic()
+                )
+        last_response = response
+        attempts.append(
+            {
+                "attempt": attempt,
+                "success": bool(response) and response.get("success") is True,
+                "response": response,
+            }
+        )
+        if bool(response) and response.get("success") is True:
+            result = dict(response)
+            result["attempts"] = attempt
+            return result
+        if not _service_log_retryable(response) or attempt >= SERVICE_LOG_MAX_ATTEMPTS:
+            break
+        time.sleep(SERVICE_LOG_RETRY_DELAYS[min(attempt - 1, len(SERVICE_LOG_RETRY_DELAYS) - 1)])
+
+    result = dict(last_response or {})
+    result.setdefault("success", False)
+    result["attempts"] = len(attempts)
+    result["attemptResults"] = attempts
+    return result
 
 
 def _service_fee_code(base):
@@ -1283,17 +1406,194 @@ def _official_system_queryable(base):
     return code.lower() in ("1", "true", "yes", "是")
 
 
-def _repair_requirement_remark(base):
-    # 延保商品详情/服务单详情里的“产品维修要求”：
-    # performFixedStandard=1 使用原厂配件；2 使用非厂家部件。
-    text = _clean_log_message(base.get("repairRequirement"))
-    if text and _official_system_queryable(base):
-        return "铂慧拆，率盛原厂配件，不影响厂保，官方系统可查"
-    if "非原厂" in text or "非厂家部件" in text:
-        return "铂慧拆，率盛非原厂配件，影响厂保"
-    if "原厂" in text or "厂家标准" in text:
-        return "铂慧拆，率盛原厂配件，不影响厂保"
+def _load_repair_standard_cache():
+    global REPAIR_STANDARD_CACHE_LOADED
+    if REPAIR_STANDARD_CACHE_LOADED:
+        return
+    REPAIR_STANDARD_CACHE_LOADED = True
+    try:
+        with open(REPAIR_STANDARD_CACHE_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            REPAIR_STANDARD_CACHE.update(
+                {
+                    str(key): str(value)
+                    for key, value in data.items()
+                    if str(value)
+                    in ("original", "original_official", "non_original", "none")
+                }
+            )
+    except Exception:
+        pass
+
+
+def _save_repair_standard_cache():
+    try:
+        with open(REPAIR_STANDARD_CACHE_FILE, "w", encoding="utf-8") as handle:
+            json.dump(REPAIR_STANDARD_CACHE, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _normalize_detail_text(text):
+    return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(text or ""))
+
+
+def _ocr_repair_detail(url, psm=6):
+    normalized_url = str(url or "").strip()
+    if normalized_url.startswith("//"):
+        normalized_url = "https:" + normalized_url
+    if not normalized_url.startswith(("http://", "https://")):
+        return ""
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        return ""
+    request = urllib.request.Request(
+        normalized_url,
+        headers={"User-Agent": UA, "Accept": "image/*,*/*;q=0.8"},
+    )
+    temp_path = ""
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read()
+        with tempfile.NamedTemporaryFile(
+            prefix="scrp-repair-", suffix=".jpg", delete=False
+        ) as handle:
+            handle.write(body)
+            temp_path = handle.name
+        completed = subprocess.run(
+            [
+                tesseract,
+                temp_path,
+                "stdout",
+                "-l",
+                "chi_sim",
+                "--psm",
+                str(psm),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+        return completed.stdout.decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+def _detect_repair_requirement_from_images(urls):
+    _load_repair_standard_cache()
+    if isinstance(urls, str):
+        urls = [urls]
+    if not isinstance(urls, list):
+        return ""
+    original_phrase = "本服务维修使用原厂配件按厂家标准进行维修不影响厂家标准保修"
+    non_original_phrase = (
+        "本服务使用非厂家部件进行维修后续可能会影响原商品厂家标准保修请您熟知非原厂"
+    )
+
+    normalized_urls = []
+    seen_urls = set()
+    for url in urls:
+        url_key = str(url or "").strip()
+        if url_key and url_key not in seen_urls:
+            seen_urls.add(url_key)
+            normalized_urls.append(url_key)
+    if not normalized_urls:
+        return ""
+
+    with REPAIR_STANDARD_LOCK:
+        for url_key in normalized_urls:
+            cached = REPAIR_STANDARD_CACHE.get(url_key)
+            if cached == "none":
+                return ""
+            if cached:
+                return cached
+
+    def detect_one(url_key, psm):
+        normalized = _normalize_detail_text(_ocr_repair_detail(url_key, psm))
+        if (
+            original_phrase in normalized
+            or (
+                "原厂配件按厂家标准" in normalized
+                and "不影响厂家标准保修" in normalized
+            )
+        ):
+            return url_key, (
+                "original_official"
+                if "官方系统可查" in normalized or "官方可查" in normalized
+                else "original"
+            )
+        if non_original_phrase in normalized or (
+            "非厂家部件" in normalized
+            and "影响原商品厂家标准保修" in normalized
+        ):
+            return url_key, "non_original"
+        return url_key, ""
+
+    executor = ThreadPoolExecutor(max_workers=REPAIR_OCR_WORKERS)
+    futures = {}
+    completed_count = 0
+    try:
+        futures = {
+            executor.submit(detect_one, url_key, psm): (url_key, psm)
+            for url_key in normalized_urls
+            for psm in (6, 3, 11)
+        }
+        for future in as_completed(
+            futures,
+            timeout=REPAIR_OCR_TIMEOUT_SECONDS,
+        ):
+            try:
+                url_key, detected = future.result()
+            except Exception:
+                continue
+            completed_count += 1
+            if not detected:
+                continue
+            with REPAIR_STANDARD_LOCK:
+                REPAIR_STANDARD_CACHE[url_key] = detected
+                _save_repair_standard_cache()
+            return detected
+    except FutureTimeoutError:
+        pass
+    finally:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False)
+    if futures and completed_count == len(futures):
+        with REPAIR_STANDARD_LOCK:
+            for url_key in normalized_urls:
+                REPAIR_STANDARD_CACHE[url_key] = "none"
+            _save_repair_standard_cache()
     return ""
+
+
+def _repair_requirement_remark(base):
+    detected = _detect_repair_requirement_from_images(
+        base.get("outerSkuDetailUrls") or []
+    )
+    if detected == "original":
+        remark = "铂慧拆，率盛原厂配件，不影响厂保"
+    elif detected == "original_official":
+        remark = "铂慧拆，率盛原厂配件，不影响厂保，官方可查"
+    elif detected == "non_original":
+        remark = "铂慧拆，率盛非原厂配件，影响厂保"
+    else:
+        text = _clean_log_message(base.get("repairRequirement"))
+        if "非原厂" in text or "非厂家部件" in text:
+            remark = "铂慧拆，率盛非原厂配件，影响厂保"
+        elif "原厂" in text or "厂家标准" in text:
+            remark = "铂慧拆，率盛原厂配件，不影响厂保"
+        else:
+            return ""
+    return remark
 
 
 def build_service_bill_log_messages(base):
@@ -1342,6 +1642,293 @@ def _service_bill_log_lock(service_bill_no):
         return lock
 
 
+def _resolve_digital_cookie(cookie, client_id=""):
+    cookie_text = str(cookie or "").strip()
+    if cookie_text:
+        return cookie_text
+    client_config = CLIENT_CONFIGS.get(str(client_id or "")) or {}
+    return str(
+        client_config.get("cookie")
+        or DIGITAL_CONFIG.get("cookie")
+        or ""
+    ).strip()
+
+
+def _baozang_order_no(base):
+    row = base.get("row") or {}
+    detail = base.get("detail") or {}
+    commit = detail.get("repairCommitInfoDto") or {}
+    return str(
+        row.get("orderNo")
+        or find_key(commit, "orderNo")
+        or base.get("orderNo")
+        or base.get("mainGoodsOrderNo")
+        or ""
+    ).strip()
+
+
+def _baozang_service_order_no(base):
+    detail = base.get("detail") or {}
+    commit = detail.get("repairCommitInfoDto") or {}
+    return str(
+        base.get("serviceOrderNo")
+        or commit.get("serviceOrderNo")
+        or ""
+    ).strip()
+
+
+def _baozang_tag_error(response):
+    if not isinstance(response, dict):
+        return "宝藏备注接口返回格式异常"
+    return str(
+        response.get("showMsg")
+        or response.get("message")
+        or response.get("msg")
+        or response.get("error")
+        or "宝藏备注写入失败"
+    )
+
+
+def _baozang_existing_tags(order_no, cookie, user_id, app_code):
+    response = call_jd(
+        "/serviceOrder/queryOrderTag",
+        {"orderNo": order_no},
+        cookie,
+        user_id,
+        app_code,
+    )
+    if not isinstance(response, dict) or not response.get("success"):
+        return set()
+    values = response.get("values")
+    if not isinstance(values, list):
+        values = response.get("data") if isinstance(response.get("data"), list) else []
+    result = set()
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        text = str(
+            item.get("tagInfo")
+            or item.get("tagMessage")
+            or item.get("remark")
+            or item.get("content")
+            or ""
+        ).strip()
+        if text:
+            result.add(text[:200])
+    return result
+
+
+def _add_baozang_tag(
+    order_no,
+    service_order_no,
+    message,
+    cookie,
+    user_id,
+    app_code,
+):
+    payload = {
+        "orderNo": order_no,
+        "serviceOrderNo": service_order_no,
+        "tagType": "FACILITATOR_REPAIR_PROCESS",
+        "tagInfo": str(message or "").strip()[:200],
+        "whetherShow": "1",
+        "tagPromiseDate": "",
+        "tagContactCustomerState": "0",
+        "tagImages": [],
+        "tagImage": [],
+    }
+    response = call_jd(
+        "/serviceOrder/serviceOrderTag",
+        payload,
+        cookie,
+        user_id,
+        app_code,
+    )
+    success = bool(response) and (
+        response.get("success") is True
+        or response.get("code") in (1, 200)
+    )
+    sys.stdout.write(
+        "bridge: baozang tag add order=%r service=%r message=%r success=%s result=%s\n"
+        % (
+            order_no,
+            service_order_no,
+            str(message or "")[:80],
+            success,
+            json.dumps(response or {}, ensure_ascii=False)[:1000],
+        )
+    )
+    sys.stdout.flush()
+    return {
+        "success": success,
+        "error": None if success else _baozang_tag_error(response),
+        "response": response,
+    }
+
+
+def _add_baozang_tag_with_retry(
+    order_no,
+    service_order_no,
+    message,
+    cookie,
+    user_id,
+    app_code,
+    client_id="",
+):
+    fingerprint = hashlib.sha256(
+        (
+            str(client_id or "")
+            + "\n"
+            + str(cookie or "")
+            + "\n"
+            + str(order_no or "")
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    with BAOZANG_REMARK_GUARD:
+        lock = BAOZANG_REMARK_LOCKS.get(fingerprint)
+        if lock is None:
+            lock = threading.Lock()
+            BAOZANG_REMARK_LOCKS[fingerprint] = lock
+    last = None
+    for attempt in range(1, SERVICE_LOG_MAX_ATTEMPTS + 1):
+        with lock:
+            with BAOZANG_REMARK_GUARD:
+                last_write_at = BAOZANG_REMARK_LAST_WRITE.get(fingerprint, 0.0)
+            wait_seconds = BAOZANG_REMARK_INTERVAL_SECONDS - (
+                time.monotonic() - last_write_at
+            )
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+            last = _add_baozang_tag(
+                order_no,
+                service_order_no,
+                message,
+                cookie,
+                user_id,
+                app_code,
+            )
+            with BAOZANG_REMARK_GUARD:
+                BAOZANG_REMARK_LAST_WRITE[fingerprint] = time.monotonic()
+        if last["success"]:
+            last["attempts"] = attempt
+            return last
+        error_text = str(last.get("error") or "")
+        if any(marker in error_text for marker in ("登录", "权限", "参数")):
+            break
+        if attempt < SERVICE_LOG_MAX_ATTEMPTS:
+            time.sleep(SERVICE_LOG_RETRY_DELAYS[min(attempt - 1, len(SERVICE_LOG_RETRY_DELAYS) - 1)])
+    last = last or {"success": False, "error": "宝藏备注写入失败"}
+    last["attempts"] = min(SERVICE_LOG_MAX_ATTEMPTS, attempt)
+    return last
+
+
+def _baozang_order_lock(order_no):
+    key = str(order_no or "").strip()
+    with BAOZANG_REMARK_GUARD:
+        lock = BAOZANG_ORDER_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            BAOZANG_ORDER_LOCKS[key] = lock
+        return lock
+
+
+def write_baozang_order_tags_for_base(
+    base,
+    cookie,
+    user_id="",
+    app_code="",
+    client_id="",
+):
+    order_no = _baozang_order_no(base)
+    lock = _baozang_order_lock(order_no)
+    with lock:
+        return _write_baozang_order_tags_for_base_unlocked(
+            base,
+            cookie,
+            user_id,
+            app_code,
+            client_id,
+        )
+
+
+def _write_baozang_order_tags_for_base_unlocked(
+    base,
+    cookie,
+    user_id="",
+    app_code="",
+    client_id="",
+):
+    order_no = _baozang_order_no(base)
+    service_order_no = _baozang_service_order_no(base)
+    if not order_no:
+        return {"success": False, "error": "缺少宝藏订单号"}
+    cookie = _resolve_digital_cookie(cookie, client_id)
+    if not cookie:
+        return {"success": False, "error": "未配置宝藏 Cookie"}
+    user_id = str(user_id or "").strip() or extract_cookie_value(cookie, "pin")
+    app_code = str(app_code or "").strip() or extract_cookie_value(cookie, "systemCode")
+    messages = [
+        str(message or "").strip()[:200]
+        for message in build_service_bill_log_messages(base)
+        if str(message or "").strip()
+    ]
+    if not messages:
+        return {"success": False, "error": "没有可逐条写入的留言内容"}
+
+    existing = _baozang_existing_tags(
+        order_no,
+        cookie,
+        user_id,
+        app_code,
+    )
+    results = []
+    added = 0
+    skipped = 0
+    first_error = ""
+    for message in messages:
+        if message in existing:
+            skipped += 1
+            results.append(
+                {"message": message, "success": True, "skipped": True}
+            )
+            continue
+        response = _add_baozang_tag_with_retry(
+            order_no,
+            service_order_no,
+            message,
+            cookie,
+            user_id,
+            app_code,
+            client_id,
+        )
+        if response.get("success"):
+            added += 1
+            existing.add(message)
+        elif not first_error:
+            first_error = str(response.get("error") or "宝藏备注写入失败")
+        results.append(
+            {
+                "message": message,
+                "success": bool(response.get("success")),
+                "skipped": False,
+                "error": response.get("error"),
+                "attempts": response.get("attempts"),
+            }
+        )
+    success = all(item.get("success") for item in results)
+    summary = "已通过宝藏逐条添加备注 %d 条" % added
+    if skipped:
+        summary += "，跳过 %d 条重复内容" % skipped
+    return {
+        "success": success,
+        "message": summary,
+        "error": first_error or (None if success else "宝藏备注写入失败"),
+        "added": added,
+        "skipped": skipped,
+        "results": results,
+    }
+
+
 def write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=""):
     service_bill_no = str(base.get("serviceBillNo") or "").strip()
     with _service_bill_log_lock(service_bill_no):
@@ -1358,22 +1945,138 @@ def start_service_bill_log_writes_background(
     jdl_token,
     jdl_cookie="",
     client_id="",
+    digital_cookie="",
+    user_id="",
+    app_code="",
 ):
+    service_bill_no = str(base.get("serviceBillNo") or "").strip()
+    normalized_client_id = str(client_id or "")
+    now = time.time()
+    with SERVICE_LOG_TASKS_GUARD:
+        for existing in SERVICE_LOG_TASKS.values():
+            if (
+                existing.get("state") == "running"
+                and str(existing.get("clientId") or "") == normalized_client_id
+                and str(existing.get("serviceBillNo") or "") == service_bill_no
+            ):
+                return existing.get("taskId")
+
+    task_id = "log-" + secrets.token_urlsafe(12)
+    task_token, task_cookie = _resolve_service_credentials(
+        jdl_token,
+        jdl_cookie,
+        client_id,
+    )
+    resolved_digital_cookie = _resolve_digital_cookie(digital_cookie, client_id)
+    task_credential = resolved_digital_cookie or (
+        str(task_token or "") + "\n" + str(task_cookie or "")
+    )
+    with SERVICE_LOG_TASKS_GUARD:
+        expired = [
+            key
+            for key, task in SERVICE_LOG_TASKS.items()
+            if now - float(task.get("createdAtEpoch") or now)
+            > SERVICE_LOG_TASK_TTL_SECONDS
+        ]
+        for key in expired:
+            SERVICE_LOG_TASKS.pop(key, None)
+        SERVICE_LOG_TASKS[task_id] = {
+            "taskId": task_id,
+            "state": "running",
+            "serviceBillNo": service_bill_no,
+            "createdAt": datetime.datetime.now().isoformat(),
+            "createdAtEpoch": now,
+            "clientId": str(client_id or ""),
+            "credentialFingerprint": hashlib.sha256(
+                str(task_credential or "").encode("utf-8")
+            ).hexdigest()[:12],
+            "result": None,
+        }
+
     def worker():
         try:
-            write_service_bill_logs_for_base(
-                base,
-                jdl_token,
-                jdl_cookie,
-                client_id,
-            )
+            if resolved_digital_cookie:
+                result = write_baozang_order_tags_for_base(
+                    base,
+                    resolved_digital_cookie,
+                    user_id,
+                    app_code,
+                    client_id,
+                )
+            else:
+                result = write_service_bill_logs_for_base(
+                    base,
+                    jdl_token,
+                    jdl_cookie,
+                    client_id,
+                )
+            public_result = {
+                "success": bool(result.get("success")),
+                "message": result.get("message") or "",
+                "error": result.get("error"),
+                "added": int(result.get("added") or 0),
+                "skipped": int(result.get("skipped") or 0),
+            }
         except Exception as error:
+            public_result = {
+                "success": False,
+                "message": "",
+                "error": str(error) or "后台写入留言异常",
+                "added": 0,
+                "skipped": 0,
+            }
             sys.stdout.write(
                 "bridge: background service log write failed %r\n" % (error,)
             )
             sys.stdout.flush()
+        with SERVICE_LOG_TASKS_GUARD:
+            SERVICE_LOG_TASKS[task_id] = {
+                "taskId": task_id,
+                "state": "completed" if public_result["success"] else "failed",
+                "serviceBillNo": service_bill_no,
+                "createdAt": SERVICE_LOG_TASKS.get(task_id, {}).get("createdAt")
+                or datetime.datetime.now().isoformat(),
+                "createdAtEpoch": now,
+                "clientId": SERVICE_LOG_TASKS.get(task_id, {}).get("clientId")
+                or str(client_id or ""),
+                "credentialFingerprint": SERVICE_LOG_TASKS.get(task_id, {}).get(
+                    "credentialFingerprint", ""
+                ),
+                "finishedAt": datetime.datetime.now().isoformat(),
+                "result": public_result,
+            }
 
     threading.Thread(target=worker, daemon=True).start()
+    return task_id
+
+
+def get_service_log_task(task_id):
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return None
+    now = time.time()
+    with SERVICE_LOG_TASKS_GUARD:
+        task = SERVICE_LOG_TASKS.get(task_id)
+        if not task:
+            return None
+        if now - float(task.get("createdAtEpoch") or now) > SERVICE_LOG_TASK_TTL_SECONDS:
+            SERVICE_LOG_TASKS.pop(task_id, None)
+            return None
+        return dict(task)
+
+
+def get_recent_service_log_tasks(limit=20):
+    try:
+        limit = max(1, min(int(limit), 100))
+    except Exception:
+        limit = 20
+    with SERVICE_LOG_TASKS_GUARD:
+        tasks = sorted(
+            SERVICE_LOG_TASKS.values(),
+            key=lambda item: float(item.get("createdAtEpoch") or 0),
+            reverse=True,
+        )
+        return [dict(task) for task in tasks[:limit]]
 
 
 def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=""):
@@ -1397,6 +2100,7 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
             },
             token,
             cookie,
+            8,
         )
         if list_response.get("success") and isinstance(list_response.get("data"), list):
             for item in list_response["data"]:
@@ -1417,7 +2121,6 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
     added = 0
     skipped = 0
     first_error = ""
-    last_add_attempted = False
     for index, message in enumerate(messages):
         written_key = service_bill_no + "|" + message
         if message in existing_messages or written_key in WRITTEN_SERVICE_LOG_MESSAGES:
@@ -1426,10 +2129,7 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
                 {"message": message, "success": True, "skipped": True}
             )
             continue
-        if last_add_attempted:
-            time.sleep(SERVICE_LOG_ADD_INTERVAL_SECONDS)
-        last_add_attempted = True
-        response = add_service_bill_log(
+        response = add_service_bill_log_with_retry(
             service_bill_no,
             message,
             jdl_token,
@@ -1456,6 +2156,18 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
                 "error": error,
             }
         )
+        if not ok and _service_log_identity_error(response):
+            for remaining_message in messages[index + 1 :]:
+                results.append(
+                    {
+                        "message": remaining_message,
+                        "success": False,
+                        "skipped": False,
+                        "error": str(error or "账号权限校验失败"),
+                        "aborted": True,
+                    }
+                )
+            break
 
     success = all(item.get("success") for item in results)
     summary = "已逐条写入 %d 条展翅服务单留言" % added
@@ -1698,6 +2410,13 @@ def query_repair(
             or find_key(detail, "whetherWarranty")
             or find_key(row, "whetherWarranty")
             or ""
+        ),
+        "outerSkuDetailUrls": (
+            find_key(commit, "outerSkuDetailUrls")
+            or find_key(receive, "outerSkuDetailUrls")
+            or find_key(detail, "outerSkuDetailUrls")
+            or find_key(row, "outerSkuDetailUrls")
+            or []
         ),
         "logisticsFree": find_key(commit, "logisticalMoneyType")
         or find_key(commit, "logisticsFreeType")
@@ -2051,16 +2770,20 @@ def auto_start_and_sync(
 
     result = {**base, "steps": steps, "startSuccess": start_success}
 
-    start_service_bill_log_writes_background(
+    service_log_task_id = start_service_bill_log_writes_background(
         base,
         jdl_token,
         jdl_cookie,
         client_id,
+        cookie,
+        user_id,
+        app_code,
     )
     service_log_result = {
         "success": True,
-        "message": "已开始后台逐条写入展翅服务单留言，预计约15秒完成",
+        "message": "已开始后台逐条写入展翅服务单留言，页面将自动显示最终结果",
         "background": True,
+        "taskId": service_log_task_id,
     }
     result["customerRemarkResult"] = service_log_result
     result["serviceLogResult"] = service_log_result
@@ -2090,6 +2813,7 @@ def remark_info_and_sync(
     client_id="",
     custom_remark="",
     force_cookie=False,
+    background=False,
 ):
     base = query_repair(
         express_no,
@@ -2108,12 +2832,29 @@ def remark_info_and_sync(
         base["customRemark"] = custom_remark
 
     result = {**base}
-    service_log_result = write_service_bill_logs_for_base(
-        base,
-        jdl_token,
-        jdl_cookie,
-        client_id,
-    )
+    if background:
+        task_id = start_service_bill_log_writes_background(
+            base,
+            jdl_token,
+            jdl_cookie,
+            client_id,
+            cookie,
+            user_id,
+            app_code,
+        )
+        service_log_result = {
+            "success": True,
+            "message": "后台留言写入任务已创建",
+            "background": True,
+            "taskId": task_id,
+        }
+    else:
+        service_log_result = write_service_bill_logs_for_base(
+            base,
+            jdl_token,
+            jdl_cookie,
+            client_id,
+        )
     result["customerRemarkResult"] = service_log_result
     result["serviceLogResult"] = service_log_result
     return result
@@ -2364,6 +3105,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "message": "京东维修/展翅登录状态",
                 },
             )
+            return
+        if parsed.path == "/api/repair/service-log-tasks":
+            query = urllib.parse.parse_qs(parsed.query)
+            limit = (query.get("limit") or ["20"])[0]
+            self._send_json(
+                200,
+                {"ok": True, "tasks": get_recent_service_log_tasks(limit)},
+            )
+            return
+        if parsed.path == "/api/repair/service-log-status":
+            query = urllib.parse.parse_qs(parsed.query)
+            task_id = (query.get("taskId") or [""])[0]
+            task = get_service_log_task(task_id)
+            if not task:
+                self._send_json(
+                    404,
+                    {"ok": False, "error": "留言写入任务不存在或已过期"},
+                )
+            else:
+                self._send_json(200, task)
             return
         if parsed.path == "/api/repair/latest":
             query = urllib.parse.parse_qs(parsed.query)
@@ -2878,7 +3639,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
-        if parsed.path == "/api/repair/remark-info":
+        if parsed.path in (
+            "/api/repair/remark-info",
+            "/api/repair/remark-info-async",
+        ):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -2895,6 +3659,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("jdlCookie", ""),
                 payload.get("clientId", ""),
                 payload.get("customRemark", ""),
+                background=parsed.path.endswith("-async"),
             )
             cookie2 = str(
                 payload.get("cookie2", "") or ""
@@ -2915,6 +3680,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     payload.get("clientId", ""),
                     payload.get("customRemark", ""),
                     force_cookie=True,
+                    background=parsed.path.endswith("-async"),
                 )
                 sys.stdout.write(
                     "bridge: remark-info retry cookie2 ok=%s found=%s error=%r\n"
