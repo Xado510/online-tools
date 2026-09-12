@@ -2142,6 +2142,30 @@
     }
   }
 
+  async function pollServiceLogTask(taskId, tracking) {
+    if (!taskId) return;
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(apiUrl('/api/repair/service-log-status?taskId=' + encodeURIComponent(taskId)));
+        const data = await response.json();
+        if (data && data.state && data.state !== 'running') {
+          const result = data.result || {};
+          if (data.state === 'completed' && result.success !== false) {
+            toast(result.message || `运单 ${tracking} 的展翅留言已写入`);
+          } else {
+            toast('展翅留言写入失败：' + (result.error || result.message || '未知错误'), 'error');
+          }
+          return;
+        }
+      } catch (error) {
+        // Keep polling briefly; the write task may still be running.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    toast(`运单 ${tracking} 的展翅留言结果查询超时，请到服务单中确认`, 'error');
+  }
+
   async function queryJdRepairAutoStart(code) {
     const seq = ++jdQuerySeq;
     const cookie = localStorage.getItem('jd_cookie') || '';
@@ -2192,6 +2216,8 @@
       } else if (data && data.error) {
         toast(data.error, 'error');
       }
+      const serviceLogTaskId = data && data.serviceLogResult && data.serviceLogResult.taskId;
+      if (serviceLogTaskId) pollServiceLogTask(serviceLogTaskId, code);
     } catch (error) {
       if (seq !== jdQuerySeq) return;
       jdRepairResult = { ok: false, error: error.message || '无法连接本地京东查询服务', tracking: code };
