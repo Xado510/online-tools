@@ -1598,9 +1598,15 @@ def _repair_requirement_remark(base):
 
 def build_service_bill_log_messages(base):
     messages = []
-    repair_remark = _repair_requirement_remark(base)
-    if repair_remark:
-        messages.append(repair_remark)
+    customer_name = _clean_log_message(base.get("customerName"))
+    customer_phone = _clean_log_message(base.get("customerPhone"))
+    customer_parts = []
+    if customer_name:
+        customer_parts.append("客户姓名：" + customer_name)
+    if customer_phone:
+        customer_parts.append("客户电话：" + customer_phone)
+    if customer_parts:
+        messages.append("，".join(customer_parts))
     express_no = _clean_log_message(base.get("expressNo"))
     performing = _clean_log_message(base.get("performingOrderNo"))
     main_order_no = _clean_log_message(base.get("mainGoodsOrderNo"))
@@ -1813,6 +1819,21 @@ def _add_baozang_tag_with_retry(
             last["attempts"] = attempt
             return last
         error_text = str(last.get("error") or "")
+        if "打标处理中" in error_text or "请勿重复请求" in error_text:
+            time.sleep(3)
+            existing = _baozang_existing_tags(
+                order_no,
+                cookie,
+                user_id,
+                app_code,
+            )
+            if str(message or "").strip()[:200] in existing:
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "error": None,
+                    "attempts": attempt,
+                }
         if any(marker in error_text for marker in ("登录", "权限", "参数")):
             break
         if attempt < SERVICE_LOG_MAX_ATTEMPTS:
@@ -1902,7 +1923,10 @@ def _write_baozang_order_tags_for_base_unlocked(
             client_id,
         )
         if response.get("success"):
-            added += 1
+            if response.get("skipped"):
+                skipped += 1
+            else:
+                added += 1
             existing.add(message)
         elif not first_error:
             first_error = str(response.get("error") or "宝藏备注写入失败")
@@ -2422,6 +2446,11 @@ def query_repair(
         or find_key(commit, "logisticsFreeType")
         or "",
         "customerName": str((customer_info.get("customerName") or "")).strip(),
+        "customerPhone": str(
+            customer_info.get("customerPhone")
+            or find_key(customer_info, "customerPhone")
+            or ""
+        ).strip(),
         "customerReceiveAddress": str((customer_info.get("customerReceiveAddress") or "")).strip(),
         "category": (
             find_key(commit, "outerMainSkuThridCategory")
