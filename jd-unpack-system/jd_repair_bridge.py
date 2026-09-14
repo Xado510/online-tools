@@ -94,6 +94,9 @@ CLIENT_JDL_TOKENS = {}
 CLIENT_JDL_COOKIES = {}
 SHARED_STATES = {}
 SHARED_STATE_FILE = os.path.join(ROOT_DIR, "shared_state.json")
+AGREEMENTS = {}
+AGREEMENT_FILE = os.path.join(ROOT_DIR, "agreements.json")
+AGREEMENT_LOCK = threading.Lock()
 PRINT_AGENTS = {}
 PRINT_JOBS = {}
 PRINT_JOB_RESULTS = {}
@@ -250,6 +253,24 @@ def save_shared_states():
     try:
         with open(SHARED_STATE_FILE, "w", encoding="utf-8") as handle:
             json.dump(SHARED_STATES, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def load_agreements():
+    try:
+        with open(AGREEMENT_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            AGREEMENTS.update(data)
+    except Exception:
+        pass
+
+
+def save_agreements():
+    try:
+        with open(AGREEMENT_FILE, "w", encoding="utf-8") as handle:
+            json.dump(AGREEMENTS, handle, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -3003,6 +3024,41 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/") and not self._is_authorized(parsed):
             self._send_json(401, {"ok": False, "error": "Unauthorized"})
             return
+        if parsed.path == "/api/agreements":
+            query = urllib.parse.parse_qs(parsed.query)
+            account = (query.get("account") or [""])[0].strip()
+            client_id = (query.get("clientId") or [""])[0].strip()
+            user_name = (query.get("userName") or [""])[0].strip()
+            with AGREEMENT_LOCK:
+                records = list(AGREEMENTS.values())
+            if account:
+                records = [
+                    item for item in records
+                    if str(item.get("account") or "") == account
+                ]
+            if client_id:
+                records = [
+                    item for item in records
+                    if str(item.get("clientId") or "") == client_id
+                ]
+            if user_name:
+                records = [
+                    item for item in records
+                    if str(item.get("userName") or "") == user_name
+                ]
+            records.sort(
+                key=lambda item: str(item.get("acceptedAt") or ""),
+                reverse=True,
+            )
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "count": len(records),
+                    "agreements": records,
+                },
+            )
+            return
         if parsed.path == "/api/print-agent/find":
             with PRINT_LOCK:
                 agent = _get_latest_print_agent()
@@ -3223,6 +3279,44 @@ class BridgeHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path.startswith("/api/") and not self._is_authorized(parsed):
             self._send_json(401, {"ok": False, "error": "Unauthorized"})
+            return
+        if parsed.path == "/api/agreements":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            account = str(payload.get("account") or "admin").strip() or "admin"
+            user_name = str(payload.get("userName") or "").strip()
+            version = str(payload.get("version") or "").strip()
+            accepted_at = str(payload.get("acceptedAt") or "").strip()
+            client_id = str(payload.get("clientId") or "").strip()
+            if not user_name or not version:
+                self._send_json(400, {"ok": False, "error": "缺少姓名或协议版本"})
+                return
+            if not accepted_at:
+                accepted_at = datetime.datetime.now().isoformat(timespec="seconds")
+            record_id = account + ":" + (client_id or "unknown")
+            now = datetime.datetime.now().isoformat(timespec="seconds")
+            record = {
+                "id": record_id,
+                "account": account,
+                "userName": user_name,
+                "version": version,
+                "acceptedAt": accepted_at,
+                "serverReceivedAt": now,
+                "clientId": client_id,
+                "machineName": str(payload.get("machineName") or "").strip(),
+                "windowsUser": str(payload.get("windowsUser") or "").strip(),
+                "appVersion": str(payload.get("appVersion") or "").strip(),
+                "ip": str(self.client_address[0] if self.client_address else ""),
+                "userAgent": str(self.headers.get("User-Agent", "")),
+            }
+            with AGREEMENT_LOCK:
+                AGREEMENTS[record_id] = record
+                save_agreements()
+            self._send_json(200, {"ok": True, "agreement": record})
             return
         if parsed.path == "/api/debug/ingest":
             try:
@@ -3830,8 +3924,10 @@ def main():
     load_jdl_token()
     load_client_configs()
     load_shared_states()
+    load_agreements()
     load_api_keys()
     save_shared_states()
+    save_agreements()
     server.serve_forever()
 
 
