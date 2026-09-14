@@ -2487,6 +2487,7 @@ def auto_start_and_sync(
     client_id="",
     custom_remark="",
     force_cookie=False,
+    write_remark=True,
 ):
     client_config = CLIENT_CONFIGS.get(client_id) or {}
     if force_cookie:
@@ -2799,21 +2800,29 @@ def auto_start_and_sync(
 
     result = {**base, "steps": steps, "startSuccess": start_success}
 
-    service_log_task_id = start_service_bill_log_writes_background(
-        base,
-        jdl_token,
-        jdl_cookie,
-        client_id,
-        cookie,
-        user_id,
-        app_code,
-    )
-    service_log_result = {
-        "success": True,
-        "message": "已开始后台逐条写入展翅服务单留言，页面将自动显示最终结果",
-        "background": True,
-        "taskId": service_log_task_id,
-    }
+    if write_remark:
+        service_log_task_id = start_service_bill_log_writes_background(
+            base,
+            jdl_token,
+            jdl_cookie,
+            client_id,
+            cookie,
+            user_id,
+            app_code,
+        )
+        service_log_result = {
+            "success": True,
+            "message": "已开始后台逐条写入展翅服务单留言，页面将自动显示最终结果",
+            "background": True,
+            "taskId": service_log_task_id,
+        }
+    else:
+        service_log_result = {
+            "success": True,
+            "message": "已跳过留言写入",
+            "background": False,
+            "taskId": None,
+        }
     result["customerRemarkResult"] = service_log_result
     result["serviceLogResult"] = service_log_result
 
@@ -3634,6 +3643,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("jdlCookie", ""),
                 payload.get("clientId", ""),
                 payload.get("customRemark", ""),
+                write_remark=bool(payload.get("writeRemark", True)),
             )
             cookie2 = str(
                 payload.get("cookie2", "") or ""
@@ -3654,6 +3664,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     payload.get("clientId", ""),
                     payload.get("customRemark", ""),
                     force_cookie=True,
+                    write_remark=bool(payload.get("writeRemark", True)),
                 )
                 sys.stdout.write(
                     "bridge: auto-start retry cookie2 %r ok=%s found=%s error=%r\n"
