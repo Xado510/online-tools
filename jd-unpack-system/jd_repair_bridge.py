@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FutureTimeoutError
 import gzip
 import hashlib
+import html
 import json
 import mimetypes
 import os
@@ -96,6 +97,7 @@ SHARED_STATES = {}
 SHARED_STATE_FILE = os.path.join(ROOT_DIR, "shared_state.json")
 AGREEMENTS = {}
 AGREEMENT_FILE = os.path.join(ROOT_DIR, "agreements.json")
+AGREEMENT_PDF_DIR = os.path.join(ROOT_DIR, "agreement_pdfs")
 AGREEMENT_LOCK = threading.Lock()
 PRINT_AGENTS = {}
 PRINT_JOBS = {}
@@ -273,6 +275,265 @@ def save_agreements():
             json.dump(AGREEMENTS, handle, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def agreement_pdf_filename(record):
+    digest = hashlib.sha256(
+        str(record.get("id") or "").encode("utf-8")
+    ).hexdigest()[:24]
+    return "agreement_" + digest + ".pdf"
+
+
+def agreement_text_sections():
+    return [
+        (
+            "一、使用范围",
+            [
+                "1. 本软件仅用于北京保险服务中心内部业务处理，不得用于任何个人用途、对外经营、商业推广或其他未经授权的用途。",
+                "2. 未经公司书面授权，不得将本软件、安装包、账号、访问密钥、接口权限、操作权限或相关配置提供给任何第三方使用。",
+                "3. 不得将本软件复制、安装、迁移或远程共享至未授权设备、未授权账号或非公司人员。",
+                "4. 本软件属于内部工作工具，不构成对外服务承诺，不得向客户、合作方或外部人员展示、演示或交付。",
+            ],
+        ),
+        (
+            "二、账号与设备责任",
+            [
+                "1. 使用人应妥善保管自己的账号、密码、Cookie、令牌、验证信息和设备访问权限。",
+                "2. 不得借用、共用、转让、出售或公开账号及访问凭证。因个人保管不当造成的操作、数据泄露或其他后果，由使用人承担相应责任。",
+                "3. 使用人应确保操作设备处于公司允许的安全环境中，禁止在公共电脑、无授权设备或不安全网络环境中使用。",
+                "4. 离开工位或结束使用时，应及时退出账号并锁定设备。",
+            ],
+        ),
+        (
+            "三、数据与保密要求",
+            [
+                "1. 软件中涉及的订单、客户、维修、商品、物流、备注及其他业务数据，仅限在授权业务范围内查询和使用。",
+                "2. 不得擅自复制、导出、截图、拍摄、转发、上传或向无关人员披露软件数据。",
+                "3. 使用人应遵循最小必要原则，只查询、处理和保存完成当前工作所必需的信息。",
+                "4. 发现数据泄露、账号异常、设备丢失、接口被滥用或其他安全事件时，应立即停止操作并向公司管理人员报告。",
+            ],
+        ),
+        (
+            "四、禁止行为",
+            [
+                "1. 禁止对软件进行破解、反编译、逆向工程、脱壳、注入、篡改、替换、二次打包或绕过授权验证。",
+                "2. 禁止删除、遮挡或修改软件名称、版权标识、版本信息、日志记录和安全提示。",
+                "3. 禁止绕过软件界面直接调用接口，禁止批量抓取、恶意请求、攻击服务器或影响系统正常运行。",
+                "4. 禁止利用软件实施违规接机、虚假操作、数据篡改、越权处理或其他违反公司制度及平台规则的行为。",
+                "5. 禁止擅自开发、传播或使用外挂、脚本、插件、自动化工具连接本软件或相关接口。",
+            ],
+        ),
+        (
+            "五、知识产权",
+            [
+                "1. 本软件的程序、代码、界面、文档、接口、标识及相关资料的知识产权归公司或合法权利人所有。",
+                "2. 未经公司书面许可，任何人不得复制、修改、传播、出租、出售、许可他人使用或用于申请专利、著作权等权利。",
+                "3. 本说明仅授予使用人在授权范围内进行内部使用的有限、可撤销、不可转让的使用权。",
+            ],
+        ),
+        (
+            "六、审计与监控",
+            [
+                "1. 公司有权基于信息安全、业务合规和系统运维需要，对软件登录、操作记录、接口调用、异常日志和设备信息进行审计。",
+                "2. 使用人不得关闭、伪造、删除或规避必要的审计和日志功能。",
+                "3. 对异常操作、超范围查询、数据外传或其他风险行为，公司有权暂停账号、收回权限并开展调查。",
+            ],
+        ),
+        (
+            "七、更新与维护",
+            [
+                "1. 使用人应使用公司提供的正式版本，不得自行修改、替换或传播非官方版本。",
+                "2. 软件更新、接口调整、权限变更和维护安排，以公司正式通知为准。",
+                "3. 因未授权修改、非官方版本、个人设备环境或违规操作造成的问题，公司不承担相应责任。",
+            ],
+        ),
+        (
+            "八、违规处理",
+            [
+                "1. 违反本说明的，公司有权立即停止授权、冻结账号、收回设备或软件使用权限，并按内部制度处理。",
+                "2. 因违规使用造成公司、客户、合作方或其他第三方损失的，使用人应依法依规承担相应责任。",
+                "3. 涉嫌违法犯罪的，公司有权移交司法机关处理。",
+            ],
+        ),
+        (
+            "九、其他说明",
+            [
+                "1. 本软件属于内部辅助工具，软件提示和自动处理结果仍需使用人按照业务流程进行必要核对。",
+                "2. 本说明如与公司正式管理制度、保密协议、劳动合同、授权文件或法律法规不一致的，以公司正式制度和有效法律文件为准。",
+                "3. 公司在合法合规范围内有权根据业务变化对本说明进行更新，更新后的内容以软件展示或公司正式通知为准。",
+            ],
+        ),
+    ]
+
+
+def build_agreement_html(record):
+    sections = []
+    for title, items in agreement_text_sections():
+        paragraphs = "".join(
+            "<p>" + html.escape(item) + "</p>" for item in items
+        )
+        sections.append(
+            '<section><h2>'
+            + html.escape(title)
+            + "</h2>"
+            + paragraphs
+            + "</section>"
+        )
+    signature_rows = [
+        ("使用者姓名", record.get("userName") or "--"),
+        ("协议版本", record.get("version") or "--"),
+        ("签署时间", record.get("acceptedAt") or "--"),
+        ("设备编号", record.get("clientId") or "--"),
+        ("电脑名称", record.get("machineName") or "--"),
+        ("Windows 用户", record.get("windowsUser") or "--"),
+        ("客户端版本", record.get("appVersion") or "--"),
+        ("后台接收时间", record.get("serverReceivedAt") or "--"),
+    ]
+    signature_html = "".join(
+        "<tr><th>"
+        + html.escape(label)
+        + "</th><td>"
+        + html.escape(str(value))
+        + "</td></tr>"
+        for label, value in signature_rows
+    )
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+@page { size: A4; margin: 16mm 15mm 18mm; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: #202733;
+  font-family: "WenQuanYi Micro Hei", "Microsoft YaHei", sans-serif;
+  font-size: 11px;
+  line-height: 1.75;
+}
+.head { text-align: center; border-bottom: 2px solid #dce5f0; padding-bottom: 12px; }
+h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
+.subtitle { margin-top: 5px; color: #667487; font-size: 12px; }
+.notice {
+  margin-top: 16px;
+  padding: 11px 13px;
+  border: 1px solid #dce5f0;
+  border-radius: 8px;
+  background: #f7faff;
+}
+section { page-break-inside: avoid; margin-top: 14px; }
+h2 { margin: 0 0 5px; font-size: 13px; color: #24538f; }
+p { margin: 2px 0; text-align: justify; }
+.signature {
+  page-break-inside: avoid;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #dce5f0;
+}
+.signature h2 { margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td {
+  padding: 7px 9px;
+  border: 1px solid #e1e8f1;
+  text-align: left;
+}
+th { width: 25%; color: #52677f; background: #f7faff; }
+.declaration {
+  margin-top: 15px;
+  padding: 11px 13px;
+  border: 1px solid #dce5f0;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+.foot { margin-top: 16px; color: #7b8798; font-size: 10px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>SCRP 北京保险服务中心服务平台</h1>
+    <div class="subtitle">内部使用同意说明 · 已签署版本</div>
+  </div>
+  <div class="notice">
+    本软件仅限北京保险服务中心授权的内部员工，在授权设备、授权账号及授权业务范围内使用。
+    使用人确认已完整阅读、理解并同意遵守本协议全部内容。
+  </div>
+  __AGREEMENT_SECTIONS__
+  <div class="signature">
+    <h2>签署信息</h2>
+    <table>__SIGNATURE_ROWS__</table>
+  </div>
+  <div class="declaration">
+    本人确认：以上姓名由本人填写，点击“同意”即视为本人签署本使用协议，并承诺仅在公司授权范围内使用本软件。
+  </div>
+  <div class="foot">SCRP 北京保险服务中心服务平台 · 内部使用签署凭证</div>
+</body>
+</html>""".replace(
+        "__AGREEMENT_SECTIONS__", "".join(sections)
+    ).replace("__SIGNATURE_ROWS__", signature_html)
+
+
+def ensure_agreement_pdf(record):
+    pdf_name = record.get("pdfFile") or agreement_pdf_filename(record)
+    pdf_path = os.path.join(AGREEMENT_PDF_DIR, pdf_name)
+    if os.path.isfile(pdf_path) and os.path.getsize(pdf_path) > 0:
+        record["pdfFile"] = pdf_name
+        return pdf_name
+
+    os.makedirs(AGREEMENT_PDF_DIR, exist_ok=True)
+    html_path = os.path.join(
+        tempfile.gettempdir(),
+        "scrp-agreement-" + secrets.token_hex(8) + ".html",
+    )
+    try:
+        with open(html_path, "w", encoding="utf-8") as handle:
+            handle.write(build_agreement_html(record))
+        chrome = _find_edge_path()
+        command = [
+            chrome,
+            "--headless",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--print-to-pdf-no-header",
+            "--print-to-pdf=" + pdf_path,
+            "file://" + html_path,
+        ]
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+        if completed.returncode != 0 or not os.path.isfile(pdf_path):
+            raise RuntimeError("Chrome PDF generation failed")
+        record["pdfFile"] = pdf_name
+        record["pdfGeneratedAt"] = datetime.datetime.now().isoformat(
+            timespec="seconds"
+        )
+        record.pop("pdfError", None)
+        return pdf_name
+    finally:
+        try:
+            os.remove(html_path)
+        except Exception:
+            pass
+
+
+def ensure_all_agreement_pdfs():
+    with AGREEMENT_LOCK:
+        records = list(AGREEMENTS.values())
+    changed = False
+    for record in records:
+        try:
+            ensure_agreement_pdf(record)
+            changed = True
+        except Exception as error:
+            record["pdfError"] = str(error)
+            changed = True
+    if changed:
+        with AGREEMENT_LOCK:
+            save_agreements()
 
 
 def load_api_keys():
@@ -3059,6 +3320,54 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if parsed.path == "/api/agreements/pdf":
+            query = urllib.parse.parse_qs(parsed.query)
+            record_id = (query.get("recordId") or [""])[0].strip()
+            client_id = (query.get("clientId") or [""])[0].strip()
+            with AGREEMENT_LOCK:
+                record = AGREEMENTS.get(record_id) if record_id else None
+                if record is None and client_id:
+                    candidates = [
+                        item for item in AGREEMENTS.values()
+                        if str(item.get("clientId") or "") == client_id
+                    ]
+                    candidates.sort(
+                        key=lambda item: str(
+                            item.get("acceptedAt") or ""
+                        ),
+                        reverse=True,
+                    )
+                    record = candidates[0] if candidates else None
+            if record is None:
+                self._send_json(404, {"ok": False, "error": "签署记录不存在"})
+                return
+            try:
+                pdf_name = ensure_agreement_pdf(record)
+                with AGREEMENT_LOCK:
+                    save_agreements()
+            except Exception as error:
+                self._send_json(
+                    500,
+                    {"ok": False, "error": "PDF生成失败：" + str(error)},
+                )
+                return
+            pdf_path = os.path.join(AGREEMENT_PDF_DIR, pdf_name)
+            if not os.path.isfile(pdf_path):
+                self._send_json(404, {"ok": False, "error": "PDF文件不存在"})
+                return
+            with open(pdf_path, "rb") as handle:
+                body = handle.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header(
+                "Content-Disposition",
+                'inline; filename="' + pdf_name + '"',
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if parsed.path == "/api/print-agent/find":
             with PRINT_LOCK:
                 agent = _get_latest_print_agent()
@@ -3313,6 +3622,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "ip": str(self.client_address[0] if self.client_address else ""),
                 "userAgent": str(self.headers.get("User-Agent", "")),
             }
+            with AGREEMENT_LOCK:
+                AGREEMENTS[record_id] = record
+                save_agreements()
+            try:
+                ensure_agreement_pdf(record)
+            except Exception as error:
+                record["pdfError"] = str(error)
             with AGREEMENT_LOCK:
                 AGREEMENTS[record_id] = record
                 save_agreements()
@@ -3925,6 +4241,7 @@ def main():
     load_client_configs()
     load_shared_states()
     load_agreements()
+    ensure_all_agreement_pdfs()
     load_api_keys()
     save_shared_states()
     save_agreements()
