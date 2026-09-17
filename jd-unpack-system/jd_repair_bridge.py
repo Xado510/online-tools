@@ -245,7 +245,8 @@ def load_shared_states():
         with open(SHARED_STATE_FILE, encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
-            SHARED_STATES.update(data)
+            for account, state in data.items():
+                SHARED_STATES[account] = _normalize_shared_state(state)
     except Exception:
         pass
 
@@ -547,20 +548,34 @@ def load_api_keys():
         pass
 
 
+def _state_time_value(value):
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+        return parsed.timestamp()
+    except Exception:
+        return 0.0
+
+
 def _state_timestamp(item):
     if not isinstance(item, dict):
-        return ""
-    return str(
+        return 0.0
+    return _state_time_value(
         item.get("updatedAt")
         or item.get("unpackedAt")
         or item.get("createdAt")
-        or ""
     )
 
 
 def cleanup_shared_states():
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
-    cutoff_text = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+    cutoff_value = cutoff.replace(tzinfo=datetime.timezone.utc).timestamp()
     removed = 0
     for account, state in SHARED_STATES.items():
         if not isinstance(state, dict):
@@ -569,7 +584,7 @@ def cleanup_shared_states():
         kept = []
         for item in items:
             timestamp = _state_timestamp(item)
-            if not timestamp or timestamp >= cutoff_text:
+            if not timestamp or timestamp >= cutoff_value:
                 kept.append(item)
             else:
                 removed += 1
@@ -581,17 +596,40 @@ def cleanup_shared_states():
         sys.stdout.flush()
 
 
+def _state_identity(item, id_key):
+    if id_key == "tracking":
+        tracking = str(item.get("tracking") or "").strip()
+        if tracking:
+            return tracking.upper()
+        value = item.get("id")
+        return str(value) if value else ""
+    value = item.get(id_key)
+    return str(value) if value else ""
+
+
 def _merge_state_list(stored, incoming, id_key="id", cleared_at=""):
     combined = {}
+    cleared_value = _state_time_value(cleared_at)
     for item in list(stored or []) + list(incoming or []):
-        if not isinstance(item, dict) or not item.get(id_key):
+        if not isinstance(item, dict):
             continue
-        if cleared_at and _state_timestamp(item) < cleared_at:
+        if cleared_value and _state_timestamp(item) < cleared_value:
             continue
-        key = str(item[id_key])
+        key = _state_identity(item, id_key)
+        if not key:
+            continue
         if key not in combined or _state_timestamp(item) >= _state_timestamp(combined[key]):
             combined[key] = item
     return list(combined.values())
+
+
+def _normalize_shared_state(state):
+    if not isinstance(state, dict):
+        return state
+    normalized = merge_shared_state({}, state)
+    if state.get("clearedAt"):
+        normalized["clearedAt"] = state["clearedAt"]
+    return normalized
 
 
 def merge_shared_state(stored, incoming):
@@ -609,6 +647,7 @@ def merge_shared_state(stored, incoming):
         "parcels": _merge_state_list(
             stored.get("parcels"),
             incoming.get("parcels"),
+            id_key="tracking",
             cleared_at=cleared_at,
         ),
         "anomalies": _merge_state_list(
@@ -616,6 +655,7 @@ def merge_shared_state(stored, incoming):
             incoming.get("anomalies"),
             cleared_at=cleared_at,
         ),
+        **({"clearedAt": cleared_at} if cleared_at else {}),
     }
 
 
@@ -3820,16 +3860,18 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     or stored.get("clearedAt")
                     or ""
                 )
-                incoming_parcels = [
-                    item
-                    for item in (incoming.get("parcels") or [])
-                    if not cleared_at or _state_timestamp(item) >= cleared_at
-                ]
-                incoming_anomalies = [
-                    item
-                    for item in (incoming.get("anomalies") or [])
-                    if not cleared_at or _state_timestamp(item) >= cleared_at
-                ]
+                incoming_parcels = _merge_state_list(
+                    [],
+                    incoming.get("parcels"),
+                    id_key="tracking",
+                    cleared_at=cleared_at,
+                )
+                incoming_anomalies = _merge_state_list(
+                    [],
+                    incoming.get("anomalies"),
+                    id_key="id",
+                    cleared_at=cleared_at,
+                )
                 merged = {
                     "schemaVersion": int(
                         incoming.get("schemaVersion")
