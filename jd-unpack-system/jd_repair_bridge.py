@@ -17,6 +17,8 @@ import tempfile
 import threading
 import time
 import datetime
+import uuid
+from decimal import Decimal, InvalidOperation
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -48,6 +50,7 @@ DEFAULT_BAR_PRINTER = (
 )
 JD_BASE = "https://baozang-out.jd.com"
 JD_SERVICE_BASE = "https://jdservice.jdl.com"
+SERVICEPLUS_BASE = "http://serviceplus.jdl.com"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 API_KEY_FILE = os.path.join(ROOT_DIR, "api_key.txt")
 API_KEYS = set()
@@ -117,6 +120,40 @@ PERFORMANCE_MAP = {
     "ADD_VALUE": "增值服务",
     "11": "服务中台",
     "SERVICE_PLATFORM_THIRD_PART_RIGHT": "服务中台",
+}
+SERVICE_ORDER_STATE_NAMES = {
+    "ZERO": "初审通过,待服务商接单",
+    "ONE": "已接单,待接机",
+    "TWO": "已接机,待服务商提交维修方案",
+    "THREE": "提交方案待审核",
+    "FOUR": "审核通过,待维修",
+    "FIRVE": "审核不通过",
+    "START_MAINTAIN": "维修中",
+    "MAINTAIN_FINISH": "商品维修结束,待寄送",
+    "MAINTAIN_FINISH_WAIT_VISIT": "商品维修结束,待上门送货",
+    "MAINTAIN_FINISH_WAIT_SHORE": "商品维修结束,待客户到门店取商品",
+    "RETURN_GOODS": "已寄送,待确认收货",
+    "CUSTOMER_RECEIVE": "客服确认收货,待反馈结果",
+    "RETURN_MAINTAIN": "客户不满意,待客服沟通,确认是否返修",
+    "SERVICE_ORDER_END": "服务单结单",
+    "CHANGE_SERVICE": "改派",
+    "RETURN": "返修,待处理",
+    "CANCEL": "取消履约",
+    "MAINTAIN_FINISH_WAIT_PAY": "待打款",
+    "FINISH_PAY": "已打款",
+    "FAIL_PAY": "打款失败",
+    "MERCHANT_REMOINDER": "催单待处理",
+}
+NO_OLD_PART_REASON_NAMES = {
+    "200元以下双向物流，无需邮寄": "200元以下双向物流，无需邮寄",
+    "原厂维修，厂家回收无旧件": "原厂维修，厂家回收无旧件",
+    "耳机补配，无旧件": "耳机补配，无旧件",
+    "补贴服务，无旧件": "补贴服务，无旧件",
+    "调试调整，无旧件": "调试调整，无旧件",
+    "清洗服务，无旧件": "清洗服务，无旧件",
+    "交换维修，无旧件": "交换维修，无旧件",
+    "该品类无残值": "该品类无残值",
+    "无需返件": "无需返件",
 }
 
 
@@ -2529,6 +2566,686 @@ def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=
     }
 
 
+def _serviceplus_error(response):
+    if not isinstance(response, dict):
+        return "展翅接口返回格式异常"
+    for key in ("message", "msg", "showMsg", "error", "errMsg"):
+        value = response.get(key)
+        if value not in (None, "", "成功"):
+            return str(value)
+    code = response.get("code")
+    if code not in (None, 0, 1, 200, "0", "1", "200", "SUCCESS"):
+        return "展翅接口返回错误码 %s" % code
+    return "展翅接口操作失败"
+
+
+def _serviceplus_success(response):
+    if not isinstance(response, dict):
+        return False
+    if response.get("success") is True:
+        return True
+    if response.get("success") is False:
+        return False
+    code = response.get("code")
+    return code in (1, 200, "1", "200", "SUCCESS")
+
+
+def _serviceplus_data(response):
+    if not isinstance(response, dict):
+        return {}
+    for key in ("value", "data", "result"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def call_serviceplus(cookie, path, payload=None, timeout=30):
+    cookie = str(cookie or "").replace("\r", "").replace("\n", "").strip()
+    if not cookie:
+        return {"success": False, "error": "未配置展翅 Cookie"}
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "identity",
+        "Content-Type": "application/json;charset=UTF-8",
+        "Cookie": cookie,
+        "login-type": "1",
+        "Origin": SERVICEPLUS_BASE,
+        "Referer": SERVICEPLUS_BASE + "/checkRepairBill/list",
+        "User-Agent": UA,
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    request = urllib.request.Request(
+        SERVICEPLUS_BASE + path,
+        data=json.dumps(payload or {}, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = decode_body(response.read(), response.headers)
+            parsed = json.loads(body)
+            return parsed if isinstance(parsed, dict) else {
+                "success": False,
+                "error": "展翅返回格式异常",
+            }
+    except urllib.error.HTTPError as error:
+        body = decode_body(error.read(), error.headers)
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict):
+                parsed.setdefault("httpStatus", error.code)
+                return parsed
+        except Exception:
+            pass
+        return {"success": False, "error": "HTTP %s: %s" % (error.code, body[:300])}
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+
+
+def _decimal_value(value):
+    if value is None or value == "":
+        return Decimal("0")
+    text = str(value).strip().replace(",", "")
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return Decimal("0")
+    try:
+        return Decimal(match.group(0))
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def _money(value):
+    return str(_decimal_value(value).quantize(Decimal("0.01")))
+
+
+def _normalize_wing_type(value):
+    text = str(value or "").strip().upper()
+    if "直赔" in text or "DIRECT" in text:
+        return "direct"
+    if "换新" in text or "RENEW" in text or "CHANGE_NEW" in text:
+        return "replace"
+    return ""
+
+
+def _option_value(options, keywords):
+    if not isinstance(options, list):
+        return None
+    lowered = [str(keyword).lower() for keyword in keywords]
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        text = " ".join(
+            str(option.get(key) or "")
+            for key in ("label", "name", "title", "text", "value", "code")
+        ).lower()
+        if any(keyword in text for keyword in lowered):
+            return option.get("value", option.get("code", option.get("name")))
+    return None
+
+
+def _find_url(value):
+    if isinstance(value, dict):
+        for key in ("imageUrl", "picUrl", "fileUrl", "url", "path", "uploadUrl"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for nested in value.values():
+            candidate = _find_url(nested)
+            if candidate:
+                return candidate
+    elif isinstance(value, list):
+        for nested in value:
+            candidate = _find_url(nested)
+            if candidate:
+                return candidate
+    elif isinstance(value, str):
+        text = value.strip()
+        if text.startswith("http://") or text.startswith("https://") or text.startswith("/"):
+            return text
+    return ""
+
+
+def _upload_serviceplus_image(cookie, filename, content):
+    cookie = str(cookie or "").replace("\r", "").replace("\n", "").strip()
+    if not cookie:
+        return {"success": False, "error": "未配置展翅 Cookie"}
+    boundary = "----SCRP" + uuid.uuid4().hex
+    safe_name = os.path.basename(filename or "已完结.png").replace('"', "")
+    content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    body = b"".join(
+        [
+            ("--%s\r\n" % boundary).encode("utf-8"),
+            (
+                'Content-Disposition: form-data; name="file"; filename="%s"\r\n'
+                % safe_name
+            ).encode("utf-8"),
+            ("Content-Type: %s\r\n\r\n" % content_type).encode("utf-8"),
+            content,
+            ("\r\n--%s--\r\n" % boundary).encode("utf-8"),
+        ]
+    )
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "identity",
+        "Content-Type": "multipart/form-data; boundary=" + boundary,
+        "Cookie": cookie,
+        "login-type": "1",
+        "Origin": SERVICEPLUS_BASE,
+        "Referer": SERVICEPLUS_BASE + "/checkRepairBill/list",
+        "User-Agent": UA,
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    request = urllib.request.Request(
+        SERVICEPLUS_BASE + "/mcs/image/upload",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            text = decode_body(response.read(), response.headers)
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {
+                "success": False,
+                "error": "上传接口返回格式异常",
+            }
+    except urllib.error.HTTPError as error:
+        text = decode_body(error.read(), error.headers)
+        return {"success": False, "error": "HTTP %s: %s" % (error.code, text[:300])}
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+
+
+def _save_completion_image(
+    cookie,
+    service_bill_no,
+    maintenance_no,
+    image_type,
+    filename,
+    image_url,
+):
+    payload = {
+        "businessNo": maintenance_no,
+        "serviceBillNo": service_bill_no,
+        "maintenanceNo": maintenance_no,
+        "imageType": image_type,
+        "uploadLink": image_type,
+        "picType": image_type,
+        "imageUrl": image_url,
+        "picUrl": image_url,
+        "fileUrl": image_url,
+        "imageName": filename,
+        "picName": filename,
+    }
+    return call_serviceplus(cookie, "/mcs/receive/saveImage", payload, timeout=30)
+
+
+def _extract_no_old_part_reason(detail):
+    commit = detail.get("repairCommitInfoDto") or {}
+    receive = detail.get("receiveMaintainOrderInfoDto") or {}
+    candidates = [
+        find_key(commit, "noOldPartReason"),
+        find_key(commit, "noOldPartReasonName"),
+        find_key(receive, "noOldPartReason"),
+        find_key(receive, "noOldPartReasonName"),
+        find_key(detail, "noOldPartReason"),
+        find_key(detail, "noOldPartReasonName"),
+    ]
+    for value in candidates:
+        if value not in (None, ""):
+            text = str(value).strip()
+            return NO_OLD_PART_REASON_NAMES.get(text, text)
+    return ""
+
+
+def _is_no_return_reason(reason):
+    text = str(reason or "").strip()
+    return "无需返件" in text or "无需邮寄" in text
+
+
+def _extract_logistics_fee(detail):
+    value = find_key(detail, "expressPrice")
+    if value not in (None, ""):
+        return _decimal_value(value)
+    express_list = find_key(detail, "expressInfoDtoList")
+    if isinstance(express_list, list):
+        total = Decimal("0")
+        for item in express_list:
+            if isinstance(item, dict):
+                total += _decimal_value(item.get("expressPrice"))
+        if total > 0:
+            return total
+    return Decimal("0")
+
+
+def close_service_order(
+    performing_order_no,
+    wing_type,
+    detection_fee,
+    other_fee,
+    direct_compensation,
+    new_machine_price,
+    logistics_fee,
+    image_base64,
+    image_name,
+    cookie,
+    cookie2,
+    user_id,
+    app_code,
+    shop_code,
+    jdl_token,
+    jdl_cookie,
+    client_id,
+    service_bill_no_override="",
+):
+    performing_order_no = str(performing_order_no or "").strip()
+    if not performing_order_no:
+        return {"ok": False, "error": "履约单号不能为空"}
+    mode = _normalize_wing_type(wing_type)
+    if not mode:
+        return {"ok": False, "error": "换新类型无法识别：%s" % wing_type}
+
+    base = query_repair(
+        performing_order_no,
+        cookie,
+        user_id,
+        app_code,
+        shop_code,
+        jdl_token,
+        jdl_cookie,
+        client_id,
+    )
+    if not base.get("ok"):
+        return {
+            "ok": False,
+            "error": base.get("error") or "宝藏查询失败",
+            "performingOrderNo": performing_order_no,
+        }
+    if not base.get("found"):
+        return {
+            "ok": True,
+            "skipped": True,
+            "error": "宝藏未查询到履约单",
+            "performingOrderNo": performing_order_no,
+        }
+
+    detail = base.get("detail") or {}
+    commit = detail.get("repairCommitInfoDto") or {}
+    service_state = str(
+        find_key(commit, "serviceState")
+        or find_key(detail, "serviceState")
+        or base.get("serviceState")
+        or ""
+    ).strip()
+    service_state_name = SERVICE_ORDER_STATE_NAMES.get(service_state, service_state)
+    if service_state != "SERVICE_ORDER_END" and service_state_name != "服务单结单":
+        return {
+            "ok": True,
+            "skipped": True,
+            "error": "宝藏服务单状态为“%s”，不是“服务单结单”"
+            % (service_state_name or "未知"),
+            "performingOrderNo": performing_order_no,
+            "serviceState": service_state,
+            "serviceStateName": service_state_name,
+        }
+
+    no_old_part_reason = _extract_no_old_part_reason(detail)
+    if _is_no_return_reason(no_old_part_reason):
+        return {
+            "ok": True,
+            "skipped": True,
+            "error": "无旧件原因为“%s”" % no_old_part_reason,
+            "performingOrderNo": performing_order_no,
+            "serviceState": service_state,
+            "serviceStateName": service_state_name,
+            "noOldPartReason": no_old_part_reason,
+        }
+
+    service_bill_no = str(
+        service_bill_no_override
+        or base.get("serviceBillNo")
+        or find_key(commit, "serviceBillNo")
+        or find_key(detail, "serviceBillNo")
+        or ""
+    ).strip()
+    if not service_bill_no:
+        return {
+            "ok": False,
+            "error": "未获取到展翅服务单号",
+            "performingOrderNo": performing_order_no,
+            "serviceState": service_state,
+            "serviceStateName": service_state_name,
+            "noOldPartReason": no_old_part_reason,
+        }
+
+    token, resolved_jdl_cookie = _resolve_service_credentials(
+        jdl_token,
+        jdl_cookie,
+        client_id,
+    )
+    del token
+    service_cookie = str(resolved_jdl_cookie or jdl_cookie or "").strip()
+    if not service_cookie:
+        return {
+            "ok": False,
+            "error": "未配置展翅 Cookie",
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+        }
+
+    detail_response = call_serviceplus(
+        service_cookie,
+        "/mcs/maintenance/queryRepairInfo",
+        {"serviceBillNo": service_bill_no, "needEdit": True},
+        timeout=30,
+    )
+    repair = _serviceplus_data(detail_response)
+    if not _serviceplus_success(detail_response) or not repair:
+        return {
+            "ok": False,
+            "error": "展翅检修单查询失败：" + _serviceplus_error(detail_response),
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+            "serviceState": service_state,
+            "serviceStateName": service_state_name,
+            "noOldPartReason": no_old_part_reason,
+        }
+
+    maintenance_status = int(
+        _decimal_value(
+            repair.get("maintenanceStatus")
+            or find_key(repair, "maintenanceStatus")
+        )
+    )
+    if maintenance_status in (60, 61, 62, 63):
+        return {
+            "ok": True,
+            "skipped": True,
+            "error": "展翅检修单已处于完结状态",
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+            "serviceState": service_state,
+            "serviceStateName": service_state_name,
+            "noOldPartReason": no_old_part_reason,
+        }
+
+    maintenance_id = repair.get("id") or find_key(repair, "maintenanceId")
+    maintenance_no = repair.get("maintenanceNo") or find_key(repair, "maintenanceNo")
+    service_no = repair.get("serviceNo") or service_bill_no
+    sys_version = repair.get("sysVersion") or repair.get("systemVersion")
+    if maintenance_id in (None, "") or not maintenance_no or not sys_version:
+        return {
+            "ok": False,
+            "error": "展翅检修单缺少 id、maintenanceNo 或 sysVersion",
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+        }
+
+    if not str(logistics_fee or "").strip():
+        logistics_fee = _extract_logistics_fee(detail)
+    merchant_fee = _decimal_value(detection_fee) + _decimal_value(other_fee)
+    refund_fee = (
+        _decimal_value(direct_compensation)
+        if mode == "direct"
+        else Decimal("0")
+    )
+    renewal_fee = (
+        _decimal_value(new_machine_price)
+        if mode == "replace"
+        else Decimal("0")
+    )
+    quote_bill = {
+        "factoryServiceFeeCode": None,
+        "factoryServiceFee": "0.00",
+        "customerServiceFee": "0.00",
+        "merchantServiceFee": _money(merchant_fee),
+        "merchantServiceFeeCode": None,
+        "logisticsFee": _money(logistics_fee),
+        "refundFee": _money(refund_fee),
+        "renewalFee": _money(renewal_fee),
+    }
+    quote_payload = {
+        "maintenanceId": maintenance_id,
+        "sysVersion": sys_version,
+        "serviceBillNo": service_no,
+        "materialAddRequests": [],
+        "quoteBillAddRequest": quote_bill,
+    }
+
+    quote_success = maintenance_status in (23, 41, 42)
+    if not quote_success:
+        check_response = call_serviceplus(
+            service_cookie,
+            "/mcs/maintenanceQuotation/checkBeforeAdd",
+            quote_payload,
+            timeout=30,
+        )
+        if _serviceplus_success(check_response) and check_response.get("data") is False:
+            return {
+                "ok": False,
+                "error": "展翅报价前校验未通过：" + _serviceplus_error(check_response),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+            }
+        quote_response = call_serviceplus(
+            service_cookie,
+            "/mcs/maintenanceQuotation/add",
+            quote_payload,
+            timeout=45,
+        )
+        if not _serviceplus_success(quote_response):
+            return {
+                "ok": False,
+                "error": "展翅报价失败：" + _serviceplus_error(quote_response),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": False,
+            }
+        quote_success = True
+
+    refreshed_response = call_serviceplus(
+        service_cookie,
+        "/mcs/maintenance/queryRepairInfo",
+        {"serviceBillNo": service_bill_no, "needEdit": True},
+        timeout=30,
+    )
+    refreshed = _serviceplus_data(refreshed_response)
+    if not _serviceplus_success(refreshed_response) or not refreshed:
+        return {
+            "ok": False,
+            "error": "报价后刷新展翅检修单失败：" + _serviceplus_error(refreshed_response),
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+            "quoteSuccess": quote_success,
+        }
+
+    refreshed_status = int(
+        _decimal_value(
+            refreshed.get("maintenanceStatus")
+            or find_key(refreshed, "maintenanceStatus")
+        )
+    )
+    repair_success = refreshed_status in (41, 42)
+    if not repair_success:
+        repair_payload = dict(refreshed)
+        repair_payload["id"] = refreshed.get("id") or maintenance_id
+        repair_payload["sysVersion"] = (
+            refreshed.get("sysVersion")
+            or refreshed.get("systemVersion")
+            or sys_version
+        )
+        repair_payload["serviceNo"] = refreshed.get("serviceNo") or service_no
+        repair_payload["operateType"] = 2
+        repair_payload["detectResult"] = 2 if mode == "direct" else 1
+        detect_type = _option_value(
+            refreshed.get("detectTypeOperation"),
+            ("退货换新", "退换货", "退货", "换新"),
+        )
+        if detect_type not in (None, ""):
+            repair_payload["detectType"] = detect_type
+
+        merchant_params = []
+        merchant_repairs = refreshed.get("merchantRepairInfos")
+        if isinstance(merchant_repairs, list):
+            for item in merchant_repairs:
+                if not isinstance(item, dict):
+                    continue
+                current = dict(item)
+                current["partsCount"] = 1
+                merchant_params.append(current)
+        if merchant_params:
+            repair_payload["merchantRepairInfoParams"] = merchant_params
+
+        repair_response = call_serviceplus(
+            service_cookie,
+            "/mcs/maintenance/updateRepairInfo",
+            repair_payload,
+            timeout=45,
+        )
+        if not _serviceplus_success(repair_response):
+            return {
+                "ok": False,
+                "error": "展翅维修完成失败：" + _serviceplus_error(repair_response),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": quote_success,
+                "repairSuccess": False,
+            }
+        repair_success = True
+
+    image_upload_success = False
+    image_save_success = False
+    if str(image_base64 or "").strip():
+        try:
+            encoded = str(image_base64).strip()
+            if "," in encoded and encoded.lower().startswith("data:"):
+                encoded = encoded.split(",", 1)[1]
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except Exception as error:
+            return {
+                "ok": False,
+                "error": "已完结图片解析失败：" + str(error),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": quote_success,
+                "repairSuccess": repair_success,
+            }
+        upload_response = _upload_serviceplus_image(
+            service_cookie,
+            image_name or "已完结.png",
+            image_bytes,
+        )
+        if not _serviceplus_success(upload_response):
+            return {
+                "ok": False,
+                "error": "展翅已完结图片上传失败：" + _serviceplus_error(upload_response),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": quote_success,
+                "repairSuccess": repair_success,
+                "imageUploadSuccess": False,
+            }
+        image_upload_success = True
+        image_url = _find_url(upload_response)
+        if not image_url:
+            return {
+                "ok": False,
+                "error": "展翅图片上传成功但未返回图片地址",
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": quote_success,
+                "repairSuccess": repair_success,
+                "imageUploadSuccess": True,
+                "imageSaveSuccess": False,
+            }
+        save_response = _save_completion_image(
+            service_cookie,
+            service_bill_no,
+            str(maintenance_no),
+            "RECHECK",
+            image_name or "已完结.png",
+            image_url,
+        )
+        if not _serviceplus_success(save_response):
+            return {
+                "ok": False,
+                "error": "展翅已完结图片保存失败：" + _serviceplus_error(save_response),
+                "performingOrderNo": performing_order_no,
+                "serviceBillNo": service_bill_no,
+                "quoteSuccess": quote_success,
+                "repairSuccess": repair_success,
+                "imageUploadSuccess": True,
+                "imageSaveSuccess": False,
+            }
+        image_save_success = True
+
+    recheck_response = call_serviceplus(
+        service_cookie,
+        "/mcs/maintenance/queryReCheckInfo",
+        {"serviceBillNo": service_bill_no},
+        timeout=30,
+    )
+    recheck = _serviceplus_data(recheck_response)
+    if not _serviceplus_success(recheck_response) or not recheck:
+        return {
+            "ok": False,
+            "error": "展翅复检信息查询失败：" + _serviceplus_error(recheck_response),
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+            "quoteSuccess": quote_success,
+            "repairSuccess": repair_success,
+            "imageUploadSuccess": image_upload_success,
+            "imageSaveSuccess": image_save_success,
+        }
+    recheck_payload = dict(recheck)
+    recheck_payload["operateType"] = 5
+    recheck_payload["sysVersion"] = (
+        recheck.get("sysVersion")
+        or recheck.get("systemVersion")
+        or refreshed.get("sysVersion")
+        or sys_version
+    )
+    if not str(recheck_payload.get("reCheckInfo") or "").strip():
+        recheck_payload["reCheckInfo"] = "复检通过"
+    recheck_result = call_serviceplus(
+        service_cookie,
+        "/mcs/maintenance/updateRepairInfo",
+        recheck_payload,
+        timeout=45,
+    )
+    if not _serviceplus_success(recheck_result):
+        return {
+            "ok": False,
+            "error": "展翅复检通过失败：" + _serviceplus_error(recheck_result),
+            "performingOrderNo": performing_order_no,
+            "serviceBillNo": service_bill_no,
+            "quoteSuccess": quote_success,
+            "repairSuccess": repair_success,
+            "imageUploadSuccess": image_upload_success,
+            "imageSaveSuccess": image_save_success,
+            "recheckSuccess": False,
+        }
+
+    return {
+        "ok": True,
+        "skipped": False,
+        "message": "展翅关单完成",
+        "performingOrderNo": performing_order_no,
+        "serviceBillNo": service_bill_no,
+        "serviceState": service_state,
+        "serviceStateName": service_state_name,
+        "noOldPartReason": no_old_part_reason,
+        "mode": mode,
+        "quoteSuccess": quote_success,
+        "repairSuccess": repair_success,
+        "imageUploadSuccess": image_upload_success,
+        "imageSaveSuccess": image_save_success,
+        "recheckSuccess": True,
+    }
+
+
 def query_repair(
     express_no,
     cookie,
@@ -4034,6 +4751,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 save_jdl_token()
             LATEST_RESULTS[tracking] = result
             self._send_json(200, {"ok": True, "tracking": tracking})
+            return
+
+        if parsed.path == "/api/repair/service-close":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            result = close_service_order(
+                payload.get("performingOrderNo", ""),
+                payload.get("wingType", ""),
+                payload.get("detectionFee", ""),
+                payload.get("otherFee", ""),
+                payload.get("directCompensation", ""),
+                payload.get("newMachinePrice", ""),
+                payload.get("logisticsFee", ""),
+                payload.get("imageBase64", ""),
+                payload.get("imageName", "已完结.png"),
+                payload.get("cookie", ""),
+                payload.get("cookie2", ""),
+                payload.get("userId", ""),
+                payload.get("appCode", ""),
+                payload.get("shopCode", ""),
+                payload.get("jdlToken", ""),
+                payload.get("jdlCookie", ""),
+                payload.get("clientId", ""),
+                payload.get("serviceBillNo", ""),
+            )
+            sys.stdout.write(
+                "bridge: service-close order=%r type=%r ok=%s skipped=%s error=%r\n"
+                % (
+                    payload.get("performingOrderNo", ""),
+                    payload.get("wingType", ""),
+                    result.get("ok"),
+                    result.get("skipped"),
+                    result.get("error"),
+                )
+            )
+            sys.stdout.flush()
+            self._send_json(200, result)
             return
 
         if parsed.path == "/api/repair/part-barcode":
