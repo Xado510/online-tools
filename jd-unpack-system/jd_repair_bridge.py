@@ -71,6 +71,9 @@ SERVICE_LOG_LOCKS_GUARD = threading.Lock()
 SERVICE_LOG_TASKS = {}
 SERVICE_LOG_TASKS_GUARD = threading.Lock()
 SERVICE_LOG_TASK_TTL_SECONDS = 3600
+SERVICE_CLOSE_TASKS = {}
+SERVICE_CLOSE_TASKS_GUARD = threading.Lock()
+SERVICE_CLOSE_TASK_TTL_SECONDS = 7200
 BAOZANG_REMARK_INTERVAL_SECONDS = 0.6
 BAOZANG_REMARK_LOCKS = {}
 BAOZANG_REMARK_LAST_WRITE = {}
@@ -2462,6 +2465,106 @@ def get_recent_service_log_tasks(limit=20):
         return [dict(task) for task in tasks[:limit]]
 
 
+def start_service_close_background(payload):
+    performing_order_no = str(payload.get("performingOrderNo") or "").strip()
+    if not performing_order_no:
+        raise ValueError("履约单号不能为空")
+    client_id = str(payload.get("clientId") or "").strip()
+    now = time.time()
+    with SERVICE_CLOSE_TASKS_GUARD:
+        for existing in SERVICE_CLOSE_TASKS.values():
+            if (
+                existing.get("state") == "running"
+                and str(existing.get("clientId") or "") == client_id
+                and str(existing.get("performingOrderNo") or "")
+                == performing_order_no
+            ):
+                return existing.get("taskId")
+
+    task_id = "close-" + secrets.token_urlsafe(12)
+    with SERVICE_CLOSE_TASKS_GUARD:
+        expired = [
+            key
+            for key, task in SERVICE_CLOSE_TASKS.items()
+            if now - float(task.get("createdAtEpoch") or now)
+            > SERVICE_CLOSE_TASK_TTL_SECONDS
+        ]
+        for key in expired:
+            SERVICE_CLOSE_TASKS.pop(key, None)
+        SERVICE_CLOSE_TASKS[task_id] = {
+            "taskId": task_id,
+            "state": "running",
+            "performingOrderNo": performing_order_no,
+            "createdAt": datetime.datetime.now().isoformat(),
+            "createdAtEpoch": now,
+            "clientId": client_id,
+            "result": None,
+        }
+
+    def worker():
+        try:
+            result = close_service_order(
+                performing_order_no,
+                payload.get("wingType", ""),
+                payload.get("detectionFee", ""),
+                payload.get("otherFee", ""),
+                payload.get("directCompensation", ""),
+                payload.get("newMachinePrice", ""),
+                payload.get("logisticsFee", ""),
+                payload.get("imageBase64", ""),
+                payload.get("imageName", "已完结.png"),
+                payload.get("cookie", ""),
+                payload.get("cookie2", ""),
+                payload.get("userId", ""),
+                payload.get("appCode", ""),
+                payload.get("shopCode", ""),
+                payload.get("jdlToken", ""),
+                payload.get("jdlCookie", ""),
+                client_id,
+                payload.get("serviceBillNo", ""),
+            )
+        except Exception as error:
+            result = {
+                "ok": False,
+                "error": str(error) or "展翅关单后台任务异常",
+                "performingOrderNo": performing_order_no,
+            }
+        with SERVICE_CLOSE_TASKS_GUARD:
+            task = SERVICE_CLOSE_TASKS.get(task_id) or {}
+            task.update(
+                {
+                    "taskId": task_id,
+                    "state": "completed" if result.get("ok") else "failed",
+                    "performingOrderNo": performing_order_no,
+                    "createdAt": task.get("createdAt")
+                    or datetime.datetime.now().isoformat(),
+                    "createdAtEpoch": now,
+                    "clientId": task.get("clientId") or client_id,
+                    "finishedAt": datetime.datetime.now().isoformat(),
+                    "result": result,
+                }
+            )
+            SERVICE_CLOSE_TASKS[task_id] = task
+
+    threading.Thread(target=worker, daemon=True).start()
+    return task_id
+
+
+def get_service_close_task(task_id):
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return None
+    now = time.time()
+    with SERVICE_CLOSE_TASKS_GUARD:
+        task = SERVICE_CLOSE_TASKS.get(task_id)
+        if not task:
+            return None
+        if now - float(task.get("createdAtEpoch") or now) > SERVICE_CLOSE_TASK_TTL_SECONDS:
+            SERVICE_CLOSE_TASKS.pop(task_id, None)
+            return None
+        return dict(task)
+
+
 def _write_service_bill_logs_for_base(base, jdl_token, jdl_cookie="", client_id=""):
     service_bill_no = str(base.get("serviceBillNo") or "").strip()
     messages = build_service_bill_log_messages(base)
@@ -4286,6 +4389,18 @@ class BridgeHandler(BaseHTTPRequestHandler):
             else:
                 self._send_json(200, task)
             return
+        if parsed.path == "/api/repair/service-close-status":
+            query = urllib.parse.parse_qs(parsed.query)
+            task_id = (query.get("taskId") or [""])[0]
+            task = get_service_close_task(task_id)
+            if not task:
+                self._send_json(
+                    404,
+                    {"ok": False, "error": "关单任务不存在或已过期"},
+                )
+            else:
+                self._send_json(200, task)
+            return
         if parsed.path == "/api/repair/latest":
             query = urllib.parse.parse_qs(parsed.query)
             tracking = (query.get("tracking") or [""])[0].strip().upper()
@@ -4759,6 +4874,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
             except Exception:
                 self._send_json(400, {"ok": False, "error": "请求体不是合法 JSON"})
+                return
+            if bool(payload.get("background")):
+                try:
+                    task_id = start_service_close_background(payload)
+                except Exception as error:
+                    self._send_json(400, {"ok": False, "error": str(error)})
+                    return
+                self._send_json(
+                    202,
+                    {
+                        "ok": True,
+                        "background": True,
+                        "taskId": task_id,
+                        "message": "展翅关单任务已创建",
+                    },
+                )
                 return
             result = close_service_order(
                 payload.get("performingOrderNo", ""),
