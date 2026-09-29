@@ -699,6 +699,36 @@ def merge_shared_state(stored, incoming):
     }
 
 
+def find_shared_parcel_by_part_barcode(account, part_barcode):
+    normalized = str(part_barcode or "").strip().upper()
+    if not normalized:
+        return None
+
+    state = SHARED_STATES.get(str(account or "admin")) or {}
+    matches = []
+    for item in state.get("parcels") or []:
+        if not isinstance(item, dict):
+            continue
+        candidates = [
+            item.get("partBarcode"),
+            (item.get("jdRepair") or {}).get("partBarcode")
+            if isinstance(item.get("jdRepair"), dict)
+            else "",
+        ]
+        if any(str(value or "").strip().upper() == normalized for value in candidates):
+            matches.append(item)
+
+    if not matches:
+        return None
+    return max(
+        matches,
+        key=lambda item: (
+            0 if item.get("isArchived") else 1,
+            _state_timestamp(item),
+        ),
+    )
+
+
 def find_barcode_printer():
     if os.path.isfile(DEFAULT_BAR_PRINTER):
         return DEFAULT_BAR_PRINTER
@@ -762,6 +792,111 @@ def find_key(obj, key):
             if result not in (None, ""):
                 return result
     return None
+
+
+CHINA_TIMEZONE = datetime.timezone(datetime.timedelta(hours=8))
+WARRANTY_DURATION_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(年|个月|月|周|天|日|小时|时)"
+)
+
+
+def _parse_main_complete_time(value):
+    if value in (None, ""):
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            timestamp = float(value)
+            if abs(timestamp) > 100000000000:
+                timestamp /= 1000.0
+            return datetime.datetime.fromtimestamp(timestamp, tz=CHINA_TIMEZONE)
+
+        text = str(value).strip()
+        if not text:
+            return None
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            timestamp = float(text)
+            if abs(timestamp) > 100000000000:
+                timestamp /= 1000.0
+            return datetime.datetime.fromtimestamp(timestamp, tz=CHINA_TIMEZONE)
+
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=CHINA_TIMEZONE)
+        return parsed.astimezone(CHINA_TIMEZONE)
+    except Exception:
+        return None
+
+
+def _add_months(value, months):
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    if month == 12:
+        next_month = datetime.datetime(year + 1, 1, 1, tzinfo=value.tzinfo)
+    else:
+        next_month = datetime.datetime(year, month + 1, 1, tzinfo=value.tzinfo)
+    month_end = next_month - datetime.timedelta(days=1)
+    day = min(value.day, month_end.day)
+    return value.replace(year=year, month=month, day=day)
+
+
+def _main_warranty_details(complete_time_value, period_value):
+    complete_time = _parse_main_complete_time(complete_time_value)
+    period = str(period_value or "").strip()
+    result = {
+        "mainCompleteTime": "",
+        "mainCompleteTimeText": "",
+        "mainWarrantyExpireAt": "",
+        "mainWarrantyStatus": "unknown",
+    }
+    if complete_time is None:
+        return result
+
+    result["mainCompleteTime"] = int(complete_time.timestamp() * 1000)
+    result["mainCompleteTimeText"] = complete_time.isoformat(timespec="seconds")
+    if not period:
+        return result
+
+    if any(marker in period for marker in ("终身", "永久", "长期")):
+        result["mainWarrantyStatus"] = "in_warranty"
+        return result
+
+    matches = WARRANTY_DURATION_RE.findall(period)
+    if not matches:
+        return result
+
+    expire_at = complete_time
+    try:
+        for amount_text, unit in matches:
+            amount = Decimal(amount_text)
+            whole = int(amount)
+            fraction = amount - whole
+            if unit == "年":
+                expire_at = _add_months(expire_at, whole * 12)
+                if fraction:
+                    expire_at += datetime.timedelta(days=float(fraction * 365))
+            elif unit in ("个月", "月"):
+                expire_at = _add_months(expire_at, whole)
+                if fraction:
+                    expire_at += datetime.timedelta(days=float(fraction * 30))
+            elif unit == "周":
+                expire_at += datetime.timedelta(weeks=float(amount))
+            elif unit in ("天", "日"):
+                expire_at += datetime.timedelta(days=float(amount))
+            elif unit in ("小时", "时"):
+                expire_at += datetime.timedelta(hours=float(amount))
+    except Exception:
+        return result
+
+    result["mainWarrantyExpireAt"] = expire_at.isoformat(timespec="seconds")
+    result["mainWarrantyStatus"] = (
+        "in_warranty"
+        if datetime.datetime.now(CHINA_TIMEZONE) <= expire_at
+        else "expired"
+    )
+    return result
 
 
 def extract_cookie_value(cookie_text, name):
@@ -3546,6 +3681,21 @@ def query_repair(
     if not service_bill_no:
         service_bill_no = LAST_MCS_SERVICE_NO
 
+    main_warranty_period = (
+        find_key(commit, "mainWarrantyPeriod")
+        or find_key(receive, "mainWarrantyPeriod")
+        or find_key(detail, "mainWarrantyPeriod")
+        or find_key(row, "mainWarrantyPeriod")
+        or ""
+    )
+    main_warranty = _main_warranty_details(
+        find_key(commit, "mainCompleteTime")
+        or find_key(receive, "mainCompleteTime")
+        or find_key(detail, "mainCompleteTime")
+        or find_key(row, "mainCompleteTime"),
+        main_warranty_period,
+    )
+
     return {
         "ok": True,
         "found": True,
@@ -3607,7 +3757,11 @@ def query_repair(
             or row_info["outerMainSkuName"]
             or row_info["outerSkuName"]
         ),
-        "sku": find_key(commit, "outerSku") or row_info["outerSku"],
+        "mainWarrantyPeriod": main_warranty_period,
+        "mainCompleteTime": main_warranty["mainCompleteTime"],
+        "mainCompleteTimeText": main_warranty["mainCompleteTimeText"],
+        "mainWarrantyExpireAt": main_warranty["mainWarrantyExpireAt"],
+        "mainWarrantyStatus": main_warranty["mainWarrantyStatus"],
         "brand": find_key(commit, "outerMainSkuBrand"),
         "model": find_key(commit, "mainSkuModel"),
         "performingModel": format_performing_model(commit),
@@ -4419,6 +4573,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "ok": bool(printer_path),
                     "path": printer_path,
                     "error": None if printer_path else "未在本机找到 BarPrinter.exe",
+                },
+            )
+            return
+
+        if parsed.path == "/api/state/find":
+            query = urllib.parse.parse_qs(parsed.query)
+            account = (query.get("account") or ["admin"])[0]
+            part_barcode = (query.get("partBarcode") or [""])[0]
+            parcel = find_shared_parcel_by_part_barcode(account, part_barcode)
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "found": bool(parcel),
+                    "account": account,
+                    "partBarcode": part_barcode,
+                    "parcel": parcel,
                 },
             )
             return
