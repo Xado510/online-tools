@@ -2093,41 +2093,49 @@ def _repair_requirement_remark(base):
     return remark
 
 
-def build_service_bill_log_messages(base):
+def build_service_bill_log_messages(base, only_performing=None):
+    if only_performing is None:
+        only_performing = str(
+            base.get("onlyPerformingRemark", False)
+        ).strip().lower() in ("1", "true", "yes", "是")
     messages = []
-    customer_name = _clean_log_message(base.get("customerName"))
-    customer_phone = _clean_log_message(base.get("customerPhone"))
-    customer_parts = []
-    if customer_name:
-        customer_parts.append("客户姓名：" + customer_name)
-    if customer_phone:
-        customer_parts.append("客户电话：" + customer_phone)
-    if customer_parts:
-        messages.append("，".join(customer_parts))
-    express_no = _clean_log_message(base.get("expressNo"))
     performing = _clean_log_message(base.get("performingOrderNo"))
-    main_order_no = _clean_log_message(base.get("mainGoodsOrderNo"))
-    order_parts = []
-    if performing:
-        order_parts.append("履约单号：" + performing)
-    if express_no:
-        order_parts.append("快递单号：" + express_no)
-    if main_order_no:
-        order_parts.append("主商品订单号：" + main_order_no)
-    if order_parts:
-        messages.append("，".join(order_parts))
-    customer_address = _clean_log_message(base.get("customerReceiveAddress"))
-    if customer_address:
-        messages.append("客户收货地址：" + customer_address)
-    service_fee_remark = _service_fee_remark(base)
-    logistics_label = _logistics_free_label(base)
-    if service_fee_remark:
-        fee_part = service_fee_remark
-        if logistics_label:
-            fee_part += "，双向免物流：" + logistics_label
-        messages.append(fee_part)
-    elif logistics_label:
-        messages.append("双向免物流：" + logistics_label)
+    if only_performing:
+        if performing:
+            messages.append("履约单号：" + performing)
+    else:
+        customer_name = _clean_log_message(base.get("customerName"))
+        customer_phone = _clean_log_message(base.get("customerPhone"))
+        customer_parts = []
+        if customer_name:
+            customer_parts.append("客户姓名：" + customer_name)
+        if customer_phone:
+            customer_parts.append("客户电话：" + customer_phone)
+        if customer_parts:
+            messages.append("，".join(customer_parts))
+        express_no = _clean_log_message(base.get("expressNo"))
+        main_order_no = _clean_log_message(base.get("mainGoodsOrderNo"))
+        order_parts = []
+        if performing:
+            order_parts.append("履约单号：" + performing)
+        if express_no:
+            order_parts.append("快递单号：" + express_no)
+        if main_order_no:
+            order_parts.append("主商品订单号：" + main_order_no)
+        if order_parts:
+            messages.append("，".join(order_parts))
+        customer_address = _clean_log_message(base.get("customerReceiveAddress"))
+        if customer_address:
+            messages.append("客户收货地址：" + customer_address)
+        service_fee_remark = _service_fee_remark(base)
+        logistics_label = _logistics_free_label(base)
+        if service_fee_remark:
+            fee_part = service_fee_remark
+            if logistics_label:
+                fee_part += "，双向免物流：" + logistics_label
+            messages.append(fee_part)
+        elif logistics_label:
+            messages.append("双向免物流：" + logistics_label)
     custom_remark = _clean_log_message(base.get("customRemark"))
     for custom_line in custom_remark.splitlines():
         line_text = _clean_log_message(custom_line)
@@ -2155,6 +2163,33 @@ def _resolve_digital_cookie(cookie, client_id=""):
         or DIGITAL_CONFIG.get("cookie")
         or ""
     ).strip()
+
+
+def _resolve_cookie2(cookie2, client_id=""):
+    cookie_text = str(cookie2 or "").strip()
+    if cookie_text:
+        return cookie_text
+    client_config = CLIENT_CONFIGS.get(str(client_id or "")) or {}
+    return str(
+        client_config.get("cookie2")
+        or DIGITAL_CONFIG.get("cookie2")
+        or ""
+    ).strip()
+
+
+def _needs_cookie2_retry(result):
+    return bool(
+        not result.get("ok")
+        or (result.get("ok") and not result.get("found"))
+        or "NotLogin" in str(result.get("error") or "")
+    )
+
+
+def _mark_credential_source(result, source):
+    if isinstance(result, dict):
+        result = dict(result)
+        result["credentialSource"] = source
+    return result
 
 
 def _baozang_order_no(base):
@@ -3784,6 +3819,7 @@ def auto_start_and_sync(
     custom_remark="",
     force_cookie=False,
     write_remark=True,
+    only_performing_remark=False,
 ):
     client_config = CLIENT_CONFIGS.get(client_id) or {}
     if force_cookie:
@@ -3842,6 +3878,7 @@ def auto_start_and_sync(
         return {**base, "steps": steps}
     if custom_remark:
         base["customRemark"] = custom_remark
+    base["onlyPerformingRemark"] = bool(only_performing_remark)
 
     detail = base.get("detail") or {}
     commit = detail.get("repairCommitInfoDto") or {}
@@ -4148,6 +4185,7 @@ def remark_info_and_sync(
     custom_remark="",
     force_cookie=False,
     background=False,
+    only_performing_remark=False,
 ):
     base = query_repair(
         express_no,
@@ -4164,6 +4202,7 @@ def remark_info_and_sync(
         return base
     if custom_remark:
         base["customRemark"] = custom_remark
+    base["onlyPerformingRemark"] = bool(only_performing_remark)
 
     result = {**base}
     if background:
@@ -4438,18 +4477,18 @@ class BridgeHandler(BaseHTTPRequestHandler):
             incoming_cookie2 = str(payload.get("cookie2", "") or "").strip()
             cookie_text = incoming_cookie
             cookie2_text = incoming_cookie2
+            existing_config = CLIENT_CONFIGS.get(client_id) or {}
             if not cookie_text and DIGITAL_CONFIG.get("cookie"):
                 cookie_text = str(DIGITAL_CONFIG.get("cookie") or "").strip()
-            if not cookie2_text and DIGITAL_CONFIG.get("cookie2"):
-                cookie2_text = str(DIGITAL_CONFIG.get("cookie2") or "").strip()
+            if not cookie2_text:
+                cookie2_text = str(
+                    existing_config.get("cookie2")
+                    or DIGITAL_CONFIG.get("cookie2")
+                    or ""
+                ).strip()
             if incoming_cookie and not validate_digital_cookie(incoming_cookie):
                 self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
                 return
-            cookie2_warning = ""
-            if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
-                cookie2_warning = "商家险 Cookie 无效，已忽略，其余配置照常保存"
-                incoming_cookie2 = ""
-                cookie2_text = ""
             config_updates = {
                 "cookie": cookie_text,
                 "cookie2": cookie2_text,
@@ -4473,7 +4512,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "message": "OK",
-                    "warning": cookie2_warning,
+                    "warning": "",
                 },
             )
             return
@@ -4518,6 +4557,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "digitalConfigured": bool(DIGITAL_CONFIG.get("cookie")),
+                    "merchantInsuranceConfigured": bool(
+                        DIGITAL_CONFIG.get("cookie2")
+                    ),
                     "jdlConfigured": token_configured,
                     "message": "京东维修/展翅登录状态",
                 },
@@ -4934,18 +4976,18 @@ class BridgeHandler(BaseHTTPRequestHandler):
             incoming_cookie2 = str(payload.get("cookie2", "") or "").strip()
             cookie_text = incoming_cookie
             cookie2_text = incoming_cookie2
+            existing_config = CLIENT_CONFIGS.get(client_id) or {}
             if not cookie_text and DIGITAL_CONFIG.get("cookie"):
                 cookie_text = str(DIGITAL_CONFIG.get("cookie") or "").strip()
-            if not cookie2_text and DIGITAL_CONFIG.get("cookie2"):
-                cookie2_text = str(DIGITAL_CONFIG.get("cookie2") or "").strip()
+            if not cookie2_text:
+                cookie2_text = str(
+                    existing_config.get("cookie2")
+                    or DIGITAL_CONFIG.get("cookie2")
+                    or ""
+                ).strip()
             if incoming_cookie and not validate_digital_cookie(incoming_cookie):
                 self._send_json(400, {"ok": False, "error": "延保 Cookie 无效，未保存"})
                 return
-            cookie2_warning = ""
-            if incoming_cookie2 and not validate_digital_cookie(incoming_cookie2):
-                cookie2_warning = "商家险 Cookie 无效，已忽略，其余配置照常保存"
-                incoming_cookie2 = ""
-                cookie2_text = ""
             config_updates = {
                 "cookie": cookie_text,
                 "cookie2": cookie2_text,
@@ -4974,7 +5016,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         else DIGITAL_CONFIG["cookie"]
                     ),
                     "message": "京东维修登录信息已保存到本地桥接服务",
-                    "warning": cookie2_warning,
+                    "warning": "",
                 },
             )
             return
@@ -5156,15 +5198,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("clientId", ""),
                 payload.get("customRemark", ""),
                 write_remark=bool(payload.get("writeRemark", True)),
+                only_performing_remark=bool(
+                    payload.get("onlyPerformingRemark", False)
+                ),
             )
-            cookie2 = str(
-                payload.get("cookie2", "") or ""
-            ).strip() or DIGITAL_CONFIG.get("cookie2", "")
-            if cookie2 and (
-                not result.get("ok")
-                or (result.get("ok") and not result.get("found"))
-                or "NotLogin" in str(result.get("error") or "")
-            ):
+            cookie2 = _resolve_cookie2(
+                payload.get("cookie2", ""),
+                payload.get("clientId", ""),
+            )
+            if cookie2 and _needs_cookie2_retry(result):
                 result = auto_start_and_sync(
                     payload.get("expressNo", ""),
                     cookie2,
@@ -5177,7 +5219,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     payload.get("customRemark", ""),
                     force_cookie=True,
                     write_remark=bool(payload.get("writeRemark", True)),
+                    only_performing_remark=bool(
+                        payload.get("onlyPerformingRemark", False)
+                    ),
                 )
+                if result.get("ok") and result.get("found"):
+                    result = _mark_credential_source(
+                        result,
+                        "merchantInsurance",
+                    )
                 sys.stdout.write(
                     "bridge: auto-start retry cookie2 %r ok=%s found=%s error=%r\n"
                     % (
@@ -5212,15 +5262,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 payload.get("clientId", ""),
                 payload.get("customRemark", ""),
                 background=parsed.path.endswith("-async"),
+                only_performing_remark=bool(
+                    payload.get("onlyPerformingRemark", False)
+                ),
             )
-            cookie2 = str(
-                payload.get("cookie2", "") or ""
-            ).strip() or DIGITAL_CONFIG.get("cookie2", "")
-            if cookie2 and (
-                not result.get("ok")
-                or (result.get("ok") and not result.get("found"))
-                or "NotLogin" in str(result.get("error") or "")
-            ):
+            cookie2 = _resolve_cookie2(
+                payload.get("cookie2", ""),
+                payload.get("clientId", ""),
+            )
+            if cookie2 and _needs_cookie2_retry(result):
                 result = remark_info_and_sync(
                     payload.get("expressNo", ""),
                     cookie2,
@@ -5233,7 +5283,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     payload.get("customRemark", ""),
                     force_cookie=True,
                     background=parsed.path.endswith("-async"),
+                    only_performing_remark=bool(
+                        payload.get("onlyPerformingRemark", False)
+                    ),
                 )
+                if result.get("ok") and result.get("found"):
+                    result = _mark_credential_source(
+                        result,
+                        "merchantInsurance",
+                    )
                 sys.stdout.write(
                     "bridge: remark-info retry cookie2 ok=%s found=%s error=%r\n"
                     % (
@@ -5274,12 +5332,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
             jdl_cookie,
             client_id,
         )
-        cookie2 = str(payload.get("cookie2", "") or "").strip() or DIGITAL_CONFIG.get("cookie2", "")
-        if cookie2 and (
-            not result.get("ok")
-            or (result.get("ok") and not result.get("found"))
-            or "NotLogin" in str(result.get("error") or "")
-        ):
+        cookie2 = _resolve_cookie2(
+            payload.get("cookie2", ""),
+            client_id,
+        )
+        if cookie2 and _needs_cookie2_retry(result):
             result = query_repair(
                 express_no,
                 cookie2,
@@ -5291,6 +5348,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 client_id,
                 force_cookie=True,
             )
+            if result.get("ok") and result.get("found"):
+                result = _mark_credential_source(
+                    result,
+                    "merchantInsurance",
+                )
             sys.stdout.write(
                 "bridge: query retry cookie2 %r ok=%s found=%s error=%r\n"
                 % (express_no, result.get("ok"), result.get("found"), result.get("error"))
