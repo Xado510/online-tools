@@ -75,6 +75,8 @@ SERVICE_CLOSE_TASKS = {}
 SERVICE_CLOSE_TASKS_GUARD = threading.Lock()
 SERVICE_CLOSE_TASK_TTL_SECONDS = 7200
 BAOZANG_REMARK_INTERVAL_SECONDS = 0.6
+BAOZANG_REMARK_MAX_ATTEMPTS = 5
+BAOZANG_REMARK_RETRY_DELAYS = (1.0, 2.0, 3.0, 5.0)
 BAOZANG_REMARK_LOCKS = {}
 BAOZANG_REMARK_LAST_WRITE = {}
 BAOZANG_REMARK_GUARD = threading.Lock()
@@ -2218,28 +2220,53 @@ def _baozang_service_order_no(base):
 def _baozang_tag_error(response):
     if not isinstance(response, dict):
         return "宝藏备注接口返回格式异常"
-    return str(
+    text = str(
         response.get("showMsg")
         or response.get("message")
         or response.get("msg")
         or response.get("error")
         or "宝藏备注写入失败"
-    )
+    ).strip()
+    status_match = re.search(r"HTTP\s+([45]\d\d)", text, re.IGNORECASE)
+    if "<html" in text.lower() or "<!doctype" in text.lower():
+        if status_match:
+            return "宝藏备注接口请求失败（HTTP %s）" % status_match.group(1)
+        return "宝藏备注接口返回了网页错误"
+    text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240] or "宝藏备注写入失败"
 
 
 def _baozang_existing_tags(order_no, cookie, user_id, app_code):
     response = call_jd(
         "/serviceOrder/queryOrderTag",
-        {"orderNo": order_no},
+        {"orderNo": order_no, "pin": user_id},
         cookie,
         user_id,
         app_code,
     )
     if not isinstance(response, dict) or not response.get("success"):
         return set()
-    values = response.get("values")
+    values = response.get("value")
     if not isinstance(values, list):
-        values = response.get("data") if isinstance(response.get("data"), list) else []
+        values = response.get("values")
+    if not isinstance(values, list):
+        data = response.get("data")
+        if isinstance(data, list):
+            values = data
+        elif isinstance(data, dict):
+            values = (
+                data.get("value")
+                or data.get("values")
+                or data.get("list")
+                or data.get("records")
+                or data.get("rows")
+                or []
+            )
+        else:
+            values = []
+    if not isinstance(values, list):
+        values = []
     result = set()
     for item in values:
         if not isinstance(item, dict):
@@ -2266,14 +2293,11 @@ def _add_baozang_tag(
 ):
     payload = {
         "orderNo": order_no,
-        "serviceOrderNo": service_order_no,
         "tagType": "FACILITATOR_REPAIR_PROCESS",
         "tagInfo": str(message or "").strip()[:200],
         "whetherShow": "1",
-        "tagPromiseDate": "",
-        "tagContactCustomerState": "0",
-        "tagImages": [],
         "tagImage": [],
+        "pin": user_id,
     }
     response = call_jd(
         "/serviceOrder/serviceOrderTag",
@@ -2282,18 +2306,14 @@ def _add_baozang_tag(
         user_id,
         app_code,
     )
-    success = bool(response) and (
-        response.get("success") is True
-        or response.get("code") in (1, 200)
-    )
+    success = bool(response) and response.get("success") is True
     sys.stdout.write(
-        "bridge: baozang tag add order=%r service=%r message=%r success=%s result=%s\n"
+        "bridge: baozang tag add path=/serviceOrder/serviceOrderTag order=%r fields=%s success=%s error=%r\n"
         % (
             order_no,
-            service_order_no,
-            str(message or "")[:80],
+            ",".join(sorted(payload.keys())),
             success,
-            json.dumps(response or {}, ensure_ascii=False)[:1000],
+            None if success else _baozang_tag_error(response),
         )
     )
     sys.stdout.flush()
@@ -2328,7 +2348,8 @@ def _add_baozang_tag_with_retry(
             lock = threading.Lock()
             BAOZANG_REMARK_LOCKS[fingerprint] = lock
     last = None
-    for attempt in range(1, SERVICE_LOG_MAX_ATTEMPTS + 1):
+    attempt_results = []
+    for attempt in range(1, BAOZANG_REMARK_MAX_ATTEMPTS + 1):
         with lock:
             with BAOZANG_REMARK_GUARD:
                 last_write_at = BAOZANG_REMARK_LAST_WRITE.get(fingerprint, 0.0)
@@ -2347,12 +2368,38 @@ def _add_baozang_tag_with_retry(
             )
             with BAOZANG_REMARK_GUARD:
                 BAOZANG_REMARK_LAST_WRITE[fingerprint] = time.monotonic()
+        attempt_results.append(
+            {
+                "attempt": attempt,
+                "success": bool(last.get("success")),
+                "error": last.get("error"),
+            }
+        )
         if last["success"]:
             last["attempts"] = attempt
+            last["attemptResults"] = attempt_results
             return last
         error_text = str(last.get("error") or "")
-        if "打标处理中" in error_text or "请勿重复请求" in error_text:
-            time.sleep(3)
+        if any(
+            marker in error_text
+            for marker in (
+                "未登录",
+                "无权限",
+                "用户不在职",
+                "请联系管理员",
+                "订单不存在",
+                "缺少订单",
+                "参数错误",
+            )
+        ):
+            break
+        if attempt < BAOZANG_REMARK_MAX_ATTEMPTS:
+            retry_wait = BAOZANG_REMARK_RETRY_DELAYS[
+                min(attempt - 1, len(BAOZANG_REMARK_RETRY_DELAYS) - 1)
+            ]
+            if "打标处理中" in error_text or "请勿重复请求" in error_text:
+                retry_wait = max(retry_wait, 3.0)
+            time.sleep(retry_wait)
             existing = _baozang_existing_tags(
                 order_no,
                 cookie,
@@ -2365,13 +2412,11 @@ def _add_baozang_tag_with_retry(
                     "skipped": True,
                     "error": None,
                     "attempts": attempt,
+                    "attemptResults": attempt_results,
                 }
-        if any(marker in error_text for marker in ("登录", "权限", "参数")):
-            break
-        if attempt < SERVICE_LOG_MAX_ATTEMPTS:
-            time.sleep(SERVICE_LOG_RETRY_DELAYS[min(attempt - 1, len(SERVICE_LOG_RETRY_DELAYS) - 1)])
     last = last or {"success": False, "error": "宝藏备注写入失败"}
-    last["attempts"] = min(SERVICE_LOG_MAX_ATTEMPTS, attempt)
+    last["attempts"] = attempt
+    last["attemptResults"] = attempt_results
     return last
 
 
@@ -2518,15 +2563,8 @@ def start_service_bill_log_writes_background(
                 return existing.get("taskId")
 
     task_id = "log-" + secrets.token_urlsafe(12)
-    task_token, task_cookie = _resolve_service_credentials(
-        jdl_token,
-        jdl_cookie,
-        client_id,
-    )
     resolved_digital_cookie = _resolve_digital_cookie(digital_cookie, client_id)
-    task_credential = resolved_digital_cookie or (
-        str(task_token or "") + "\n" + str(task_cookie or "")
-    )
+    task_credential = resolved_digital_cookie
     with SERVICE_LOG_TASKS_GUARD:
         expired = [
             key
@@ -2560,12 +2598,13 @@ def start_service_bill_log_writes_background(
                     client_id,
                 )
             else:
-                result = write_service_bill_logs_for_base(
-                    base,
-                    jdl_token,
-                    jdl_cookie,
-                    client_id,
-                )
+                result = {
+                    "success": False,
+                    "message": "已通过宝藏逐条添加备注 0 条",
+                    "error": "未配置宝藏 Cookie",
+                    "added": 0,
+                    "skipped": 0,
+                }
             public_result = {
                 "success": bool(result.get("success")),
                 "message": result.get("message") or "",
@@ -4145,7 +4184,7 @@ def auto_start_and_sync(
         )
         service_log_result = {
             "success": True,
-            "message": "已开始后台逐条写入展翅服务单留言，页面将自动显示最终结果",
+            "message": "已开始后台逐条写入宝藏订单备注，页面将自动显示最终结果",
             "background": True,
             "taskId": service_log_task_id,
         }
@@ -4222,12 +4261,23 @@ def remark_info_and_sync(
             "taskId": task_id,
         }
     else:
-        service_log_result = write_service_bill_logs_for_base(
-            base,
-            jdl_token,
-            jdl_cookie,
-            client_id,
-        )
+        resolved_digital_cookie = _resolve_digital_cookie(cookie, client_id)
+        if resolved_digital_cookie:
+            service_log_result = write_baozang_order_tags_for_base(
+                base,
+                resolved_digital_cookie,
+                user_id,
+                app_code,
+                client_id,
+            )
+        else:
+            service_log_result = {
+                "success": False,
+                "message": "已通过宝藏逐条添加备注 0 条",
+                "error": "未配置宝藏 Cookie",
+                "added": 0,
+                "skipped": 0,
+            }
     result["customerRemarkResult"] = service_log_result
     result["serviceLogResult"] = service_log_result
     return result
