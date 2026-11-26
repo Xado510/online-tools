@@ -2479,6 +2479,27 @@ def _write_baozang_order_tags_for_base_unlocked(
         user_id,
         app_code,
     )
+    compact_existing = "".join(existing)
+    compact_existing = "".join(
+        character for character in compact_existing if not character.isspace()
+    )
+    if "已入维" in compact_existing and "履约单号" in compact_existing:
+        sys.stdout.write(
+            "bridge: baozang remark skipped order=%r reason=in-repair tagCount=%d\n"
+            % (order_no, len(existing))
+        )
+        sys.stdout.flush()
+        return {
+            "success": True,
+            "message": "检测到已有“已入维 履约单号”留言，已跳过本次留言",
+            "error": None,
+            "added": 0,
+            "skipped": len(messages),
+            "results": [
+                {"message": message, "success": True, "skipped": True}
+                for message in messages
+            ],
+        }
     results = []
     added = 0
     skipped = 0
