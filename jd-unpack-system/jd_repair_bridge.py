@@ -2095,7 +2095,21 @@ def _repair_requirement_remark(base):
     return remark
 
 
-def build_service_bill_log_messages(base, only_performing=None):
+def _service_bill_custom_log_messages(base):
+    custom_remark = _clean_log_message(base.get("customRemark"))
+    messages = []
+    for custom_line in custom_remark.splitlines():
+        line_text = _clean_log_message(custom_line)
+        if line_text:
+            messages.append(line_text)
+    return messages
+
+
+def build_service_bill_log_messages(
+    base,
+    only_performing=None,
+    include_custom=True,
+):
     if only_performing is None:
         only_performing = str(
             base.get("onlyPerformingRemark", False)
@@ -2138,11 +2152,8 @@ def build_service_bill_log_messages(base, only_performing=None):
             messages.append(fee_part)
         elif logistics_label:
             messages.append("双向免物流：" + logistics_label)
-    custom_remark = _clean_log_message(base.get("customRemark"))
-    for custom_line in custom_remark.splitlines():
-        line_text = _clean_log_message(custom_line)
-        if line_text:
-            messages.append(line_text)
+    if include_custom:
+        messages.extend(_service_bill_custom_log_messages(base))
     return messages
 
 
@@ -2465,11 +2476,17 @@ def _write_baozang_order_tags_for_base_unlocked(
         return {"success": False, "error": "未配置宝藏 Cookie"}
     user_id = str(user_id or "").strip() or extract_cookie_value(cookie, "pin")
     app_code = str(app_code or "").strip() or extract_cookie_value(cookie, "systemCode")
-    messages = [
+    custom_messages = [
         str(message or "").strip()[:200]
-        for message in build_service_bill_log_messages(base)
+        for message in _service_bill_custom_log_messages(base)
         if str(message or "").strip()
     ]
+    standard_messages = [
+        str(message or "").strip()[:200]
+        for message in build_service_bill_log_messages(base, include_custom=False)
+        if str(message or "").strip()
+    ]
+    messages = standard_messages + custom_messages
     if not messages:
         return {"success": False, "error": "没有可逐条写入的留言内容"}
 
@@ -2483,7 +2500,10 @@ def _write_baozang_order_tags_for_base_unlocked(
     compact_existing = "".join(
         character for character in compact_existing if not character.isspace()
     )
-    if "已入维" in compact_existing and "履约单号" in compact_existing:
+    in_repair_existing = (
+        "已入维" in compact_existing and "履约单号" in compact_existing
+    )
+    if in_repair_existing and not custom_messages:
         sys.stdout.write(
             "bridge: baozang remark skipped order=%r reason=in-repair tagCount=%d\n"
             % (order_no, len(existing))
@@ -2494,17 +2514,21 @@ def _write_baozang_order_tags_for_base_unlocked(
             "message": "检测到已有“已入维 履约单号”留言，已跳过本次留言",
             "error": None,
             "added": 0,
-            "skipped": len(messages),
+            "skipped": len(standard_messages),
             "results": [
                 {"message": message, "success": True, "skipped": True}
-                for message in messages
+                for message in standard_messages
             ],
         }
-    results = []
+    results = [
+        {"message": message, "success": True, "skipped": True}
+        for message in standard_messages
+    ] if in_repair_existing else []
     added = 0
-    skipped = 0
+    skipped = len(standard_messages) if in_repair_existing else 0
     first_error = ""
-    for message in messages:
+    messages_to_write = custom_messages if in_repair_existing else messages
+    for message in messages_to_write:
         if message in existing:
             skipped += 1
             results.append(
@@ -2539,6 +2563,8 @@ def _write_baozang_order_tags_for_base_unlocked(
         )
     success = all(item.get("success") for item in results)
     summary = "已通过宝藏逐条添加备注 %d 条" % added
+    if in_repair_existing:
+        summary += "，检测到已有“已入维 履约单号”，已跳过标准留言"
     if skipped:
         summary += "，跳过 %d 条重复内容" % skipped
     return {
